@@ -60,8 +60,8 @@ export function getSubjectConfig(key: SubjectKey) {
   return configs[key] || { name: key, color: '#9ca3af' };
 }
 
-export function getFocusScore(activeMins: number, distractionMins: number): number {
-  const total = activeMins + distractionMins;
+export function getFocusScore(log: Pick<LogItem, 'activeMins' | 'distractionMins'>): number {
+  const total = log.activeMins + log.distractionMins;
   if (total === 0) return 0;
-  return Math.round((activeMins / total) * 100);
+  return Math.round((log.activeMins / total) * 100);
 }

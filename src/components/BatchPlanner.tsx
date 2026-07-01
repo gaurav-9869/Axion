@@ -120,7 +120,7 @@ export default function BatchPlanner({ morningPlan, setMorningPlan, logActivePla
               <div key={plan.id} className="bg-black/15 border border-white/[0.04] p-3.5 rounded-xl flex items-center justify-between gap-3 relative overflow-hidden">
                 <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: config.color }} />
                 <div className="pl-2 flex flex-col gap-0.5 overflow-hidden">
-                  <span className={`text-[10px] font-bold uppercase ${config.text}`}>{config.name} — {plan.sessionType}</span>
+                  <span className="text-[10px] font-bold uppercase" style={{ color: config.color }}>{config.name} — {plan.sessionType}</span>
                   <p className="text-sm font-semibold text-white truncate max-w-md">{plan.topic}</p>
                   <span className="text-[11px] text-zinc-500 font-medium">{plan.targetMins}m allocated window</span>
                 </div>
