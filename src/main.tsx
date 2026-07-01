@@ -1,9 +1,9 @@
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import React, { ErrorInfo, ReactNode } from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
 
-class ErrorBoundary extends Component<{children: ReactNode}, {hasError: boolean, error: Error | null}> {
+class ErrorBoundary extends React.Component<{children: ReactNode}, {hasError: boolean, error: Error | null}> {
   constructor(props: {children: ReactNode}) {
     super(props);
     this.state = { hasError: false, error: null };
@@ -20,10 +20,10 @@ class ErrorBoundary extends Component<{children: ReactNode}, {hasError: boolean,
   render() {
     if (this.state.hasError) {
       return (
-        <div style={{ padding: 20, color: 'white', backgroundColor: '#990000', fontFamily: 'monospace' }}>
-          <h1>Something went wrong.</h1>
-          <pre>{this.state.error?.toString()}</pre>
-          <pre>{this.state.error?.stack}</pre>
+        <div style={{ padding: 20, color: 'white', backgroundColor: '#990000', fontFamily: 'monospace', position: 'fixed', inset: 0, zIndex: 9999 }}>
+          <h1>React Error Boundary caught an error:</h1>
+          <pre style={{ whiteSpace: 'pre-wrap' }}>{this.state.error?.toString()}</pre>
+          <pre style={{ whiteSpace: 'pre-wrap', marginTop: 20 }}>{this.state.error?.stack}</pre>
         </div>
       );
     }
