@@ -7,7 +7,7 @@ export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
   return {
     // Relocking base to your active case-sensitive repository path to prevent asset loading failure
-    base: '/',
+    base: './',
     plugins: [react(), tailwindcss()],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
