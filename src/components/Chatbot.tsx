@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { PlanItem, LogItem, getSubjectConfig, calculateNextReviewDate } from '../types';
 import { nanoid } from 'nanoid';
+import { GoogleGenAI } from '@google/genai';
 
 interface ChatbotProps {
   morningPlan: PlanItem[];
@@ -80,20 +81,32 @@ HOWEVER, if the user explicitly says "log the session as it is", IMMEDIATELY byp
 
 User input message: "${safeUserText}"`;
 
-      const res = await fetch(`/api/gemini/generate`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ prompt: operationalPrompt })
-      });
+      let assistantText = "";
+      const apiKey = (import.meta as any).env.VITE_GEMINI_API_KEY;
+      
+      if (apiKey) {
+          const ai = new GoogleGenAI({ apiKey });
+          const response = await ai.models.generateContent({
+              model: 'gemini-2.5-flash',
+              contents: operationalPrompt,
+          });
+          assistantText = response.text || "Let's try rephrasing that request.";
+      } else {
+          const res = await fetch(`/api/gemini/generate`, {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ prompt: operationalPrompt })
+          });
 
-      if (!res.ok) {
-        throw new Error(`API Connection Failed: ${res.status}`);
+          if (!res.ok) {
+            throw new Error(`API Connection Failed: ${res.status}`);
+          }
+
+          const data = await res.json();
+          assistantText = data.text || "Let's try rephrasing that request.";
       }
-
-      const data = await res.json();
-      let assistantText = data.text || "Let's try rephrasing that request.";
 
       const jsonRegex = /:::(.*?):::/s;
       const match = assistantText.match(jsonRegex);

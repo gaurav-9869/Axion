@@ -3,10 +3,11 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
 
-class ErrorBoundary extends React.Component<{children: ReactNode}, {hasError: boolean, error: Error | null}> {
+class ErrorBoundary extends React.Component<any, any> {
+  state = { hasError: false, error: null };
+
   constructor(props: {children: ReactNode}) {
     super(props);
-    this.state = { hasError: false, error: null };
   }
 
   static getDerivedStateFromError(error: Error) {
@@ -27,7 +28,7 @@ class ErrorBoundary extends React.Component<{children: ReactNode}, {hasError: bo
         </div>
       );
     }
-    return this.props.children;
+    return (this as any).props.children;
   }
 }
 

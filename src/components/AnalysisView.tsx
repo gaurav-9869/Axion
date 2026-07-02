@@ -152,7 +152,7 @@ export default function AnalysisView({ loggedSessions, userSettings }: AnalysisV
 
   // ── Render ───────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col gap-8 w-full max-w-5xl mx-auto text-zinc-100 animate-fade-in">
+    <div className="flex flex-col gap-8 w-full text-zinc-100 animate-fade-in">
 
       {/* ── GRID: Chart A + Chart B (unchanged) ───────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -390,7 +390,7 @@ export default function AnalysisView({ loggedSessions, userSettings }: AnalysisV
                                            }`}>
                                                {log.sessionType}
                                            </span>
-                                           <span className="text-zinc-400">{log.logDate}</span>
+                                           <span className="text-zinc-400">{(log as any).logDate}</span>
                                        </div>
                                        <div className="flex items-center gap-3 text-zinc-500">
                                            <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[14px]">timer</span> {log.activeMins}m</span>
