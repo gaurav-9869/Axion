@@ -17,7 +17,7 @@ export default function Sidebar({ currentTab, setTab, isOpen, setIsOpen, profile
     { id: 'command', label: 'Tracker', icon: 'dashboard' },
     { id: 'archive', label: 'Archive', icon: 'inventory_2' },
     { id: 'analysis', label: 'Analysis', icon: 'analytics' },
-    { id: 'settings', label: 'Settings', icon: 'tune' }
+    { id: 'weekly', label: 'Weekly Review', icon: 'check_box' }
   ];
 
   return (
@@ -86,30 +86,24 @@ export default function Sidebar({ currentTab, setTab, isOpen, setIsOpen, profile
           </nav>
         </div>
 
-        {/* Profile Navigation Card */}
+        {/* Settings Navigation Card */}
         <div className="border-t border-white/10 pt-4 mt-auto w-full">
           <button 
             onClick={() => {
-              setTab('account');
+              setTab('settings');
               setIsOpen(false);
             }}
-            className={`w-full flex items-center gap-3 p-2.5 rounded-xl border transition-all duration-300 cursor-pointer text-left hover:bg-white/10 ${currentTab === 'account' ? 'bg-white/10 border-white/20' : 'border-transparent bg-black/20'}`}
+            className={`w-full flex items-center gap-3 p-2.5 rounded-xl border transition-all duration-300 cursor-pointer text-left hover:bg-white/10 ${currentTab === 'settings' ? 'bg-white/10 border-white/20' : 'border-transparent bg-black/20'}`}
           >
             <div className="w-10 h-10 rounded-full border border-white/20 overflow-hidden bg-zinc-800 flex items-center justify-center shrink-0">
-               {profileImg ? (
-                   <img src={profileImg} alt="Avatar" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
-               ) : (
-                   <span className="text-sm font-bold text-zinc-300 uppercase">
-                     {userSettings?.name ? userSettings.name.charAt(0).toUpperCase() : 'A'}
-                   </span>
-               )}
+               <span className="material-symbols-outlined text-zinc-300">tune</span>
             </div>
             <div className="flex flex-col overflow-hidden">
                <span className="text-sm font-bold text-white tracking-tight truncate">
-                 {userSettings?.name || 'My Account'}
+                 Settings
                </span>
                <span className="text-[11px] text-zinc-400 truncate font-medium">
-                 Manage Profile
+                 Preferences & UI
                </span>
             </div>
           </button>

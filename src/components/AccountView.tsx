@@ -12,7 +12,6 @@ export default function AccountView({ userSettings, setUserSettings }: AccountVi
   const [hasToken, setHasToken] = useState(false);
   const [userProfile, setUserProfile] = useState<{name: string, picture: string, email: string} | null>(null);
   const [newSubjectName, setNewSubjectName] = useState('');
-  const [geminiKey, setGeminiKey] = useState('');
   const silentRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchUserProfile = async (token: string) => {
@@ -34,7 +33,7 @@ export default function AccountView({ userSettings, setUserSettings }: AccountVi
           try {
               const client = google.accounts.oauth2.initTokenClient({
                   client_id: clientId,
-                  scope: 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
+                  scope: 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.appdata',
                   prompt: '',
                   callback: (response: any) => {
                       if (!response.error && response.access_token) {
@@ -59,8 +58,6 @@ export default function AccountView({ userSettings, setUserSettings }: AccountVi
   useEffect(() => {
      const token = localStorage.getItem('gcal_token');
      const expires = localStorage.getItem('gcal_token_expires');
-     const apiKey = localStorage.getItem('gemini_api_key');
-     if (apiKey) setGeminiKey(apiKey);
 
      if (token && expires && Date.now() < Number(expires)) {
          setHasToken(true);
@@ -87,11 +84,6 @@ export default function AccountView({ userSettings, setUserSettings }: AccountVi
      };
   }, []);
 
-  const handleGeminiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      setGeminiKey(e.target.value);
-      localStorage.setItem('gemini_api_key', e.target.value);
-  };
-
   const handleConnect = () => {
      try {
          const clientId = (import.meta as any).env.VITE_GOOGLE_CLIENT_ID;
@@ -101,7 +93,7 @@ export default function AccountView({ userSettings, setUserSettings }: AccountVi
          }
          const client = google.accounts.oauth2.initTokenClient({
              client_id: clientId,
-             scope: 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
+             scope: 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.appdata',
              prompt: 'consent',
              callback: (response: any) => {
                  if (response.error) {
@@ -186,14 +178,6 @@ export default function AccountView({ userSettings, setUserSettings }: AccountVi
                            onChange={e => setUserSettings(prev => ({...prev, className: e.target.value}))}
                            className="w-full bg-black/40 border border-white/10 rounded-xl p-3.5 text-sm outline-none focus:border-white/30 transition-colors"
                            placeholder="e.g. 11th PCBM"
-                        />
-                     </div>
-                     <div className="md:col-span-2">
-                        <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">Gemini Protocol API Key</label>
-                        <input
-                           type="password" value={geminiKey} onChange={handleGeminiKeyChange}
-                           className="w-full bg-black/40 border border-white/10 rounded-xl p-3.5 text-sm font-mono outline-none focus:border-white/30 transition-colors"
-                           placeholder="AI Analysis features require an active API key."
                         />
                      </div>
                  </div>
@@ -312,6 +296,33 @@ export default function AccountView({ userSettings, setUserSettings }: AccountVi
                          <span className="material-symbols-outlined text-[18px]">hard_drive</span> Cold Storage
                      </h3>
                      <div className="flex flex-col justify-between p-6 bg-black/20 border border-white/5 rounded-2xl h-full gap-4">
+                         {hasToken && (
+                             <div className="border-b border-white/10 pb-4 mb-2">
+                                 <h4 className="font-bold text-zinc-100 text-base">Google Drive Sync</h4>
+                                 <p className="text-xs text-zinc-400 mt-1 mb-4 leading-relaxed">Restore your entire application history from the cloud backup.</p>
+                                 <button 
+                                     onClick={async () => {
+                                         const { downloadAndRestoreBackup } = await import('../lib/driveSync');
+                                         const token = localStorage.getItem('gcal_token');
+                                         if (!token) return;
+                                         try {
+                                             const success = await downloadAndRestoreBackup(token);
+                                             if (success) {
+                                                alert("History restored from Google Drive! Reloading...");
+                                                window.location.reload();
+                                             } else {
+                                                alert("No backup file found in Google Drive.");
+                                             }
+                                         } catch (e) {
+                                             alert("Failed to restore backup.");
+                                         }
+                                     }}
+                                     className="w-full text-sm px-6 py-3.5 rounded-xl border border-indigo-500/50 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 cursor-pointer transition-colors font-bold flex items-center justify-center gap-2"
+                                 >
+                                     <span className="material-symbols-outlined text-[18px]">cloud_download</span> Fetch History
+                                 </button>
+                             </div>
+                         )}
                          <div>
                              <h4 className="font-bold text-zinc-100 text-base">Local Data Export</h4>
                              <p className="text-[12px] text-zinc-400 leading-relaxed mt-2">Download a structured JSON copy of all your tracked study hours, goals, and history.</p>

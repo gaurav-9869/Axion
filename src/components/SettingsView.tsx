@@ -15,6 +15,42 @@ export default function SettingsView({
 }: SettingsViewProps) {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const backupInputRef = useRef<HTMLInputElement>(null);
+
+  const handleExportBackup = () => {
+      const data = {
+          plans: localStorage.getItem('axion_plans'),
+          logs: localStorage.getItem('axion_logs'),
+          settings: localStorage.getItem('axion_settings'),
+          archive: localStorage.getItem('axion_archive')
+      };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `axion_backup_${new Date().toISOString().split('T')[0]}.json`;
+      a.click();
+  };
+
+  const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (event) => {
+          try {
+              const data = JSON.parse(event.target?.result as string);
+              if (data.plans) localStorage.setItem('axion_plans', data.plans);
+              if (data.logs) localStorage.setItem('axion_logs', data.logs);
+              if (data.settings) localStorage.setItem('axion_settings', data.settings);
+              if (data.archive) localStorage.setItem('axion_archive', data.archive);
+              alert("Backup restored successfully! Reloading application...");
+              window.location.reload();
+          } catch (err) {
+              alert("Invalid backup file.");
+          }
+      };
+      reader.readAsText(file);
+  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
@@ -135,6 +171,45 @@ export default function SettingsView({
                      </div>
                  </div>
              </div>
+
+             {/* Backup System */}
+             <div className="flex flex-col gap-5 border-b border-white/10 pb-8">
+                 <h3 className="text-sm font-bold uppercase tracking-widest text-emerald-400 flex items-center gap-2">
+                     <span className="material-symbols-outlined text-[18px]">save</span> Data Backup
+                 </h3>
+                 
+                 <div className="flex flex-col gap-4">
+                     <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">JSON Export & Restore</label>
+                     <p className="text-[12px] text-zinc-400 max-w-xl leading-relaxed">
+                         Download your entire local database (plans, logs, archive, and settings) as a .json file, or upload a previous backup to restore your workspace.
+                     </p>
+                     
+                     <input 
+                         type="file" 
+                         accept=".json" 
+                         className="hidden" 
+                         ref={backupInputRef} 
+                         onChange={handleImportBackup} 
+                     />
+                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
+                         <button 
+                             onClick={handleExportBackup}
+                             className="flex items-center justify-center gap-3 w-full py-4 rounded-xl bg-black/40 border border-white/10 hover:border-emerald-400/50 hover:bg-emerald-500/10 transition-all font-bold tracking-wide"
+                         >
+                             <span className="material-symbols-outlined text-[20px] text-emerald-400">download</span>
+                             Export Backup
+                         </button>
+                         <button 
+                             onClick={() => backupInputRef.current?.click()}
+                             className="flex items-center justify-center gap-3 w-full py-4 rounded-xl bg-black/40 border border-white/10 hover:border-amber-400/50 hover:bg-amber-500/10 transition-all font-bold tracking-wide"
+                         >
+                             <span className="material-symbols-outlined text-[20px] text-amber-400">upload</span>
+                             Restore Backup
+                         </button>
+                     </div>
+                 </div>
+             </div>
+
         </div>
     </div>
   );

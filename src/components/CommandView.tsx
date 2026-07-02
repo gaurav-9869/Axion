@@ -24,6 +24,11 @@ export default function CommandView({ morningPlan, setMorningPlan, loggedSession
   const [logRecover, setLogRecover] = useState('0');
   const [logRetention, setLogRetention] = useState('5');
   const [logNotes, setLogNotes] = useState('');
+  
+  const [logChecking, setLogChecking] = useState('0');
+  const [logPractice, setLogPractice] = useState('0');
+  const [logErrors, setLogErrors] = useState('0');
+  const [systemRefinement, setSystemRefinement] = useState('');
 
   const [logStartPage, setLogStartPage] = useState('0');
   const [logEndPage, setLogEndPage] = useState('0');
@@ -40,6 +45,10 @@ export default function CommandView({ morningPlan, setMorningPlan, loggedSession
     setLogDistract('0');
     setLogRecover('0');
     setLogRetention('5');
+    setLogChecking('0');
+    setLogPractice('0');
+    setLogErrors('0');
+    setSystemRefinement('');
     setLogNotes('');
     setLogStartPage('0');
     setLogEndPage('0');
@@ -136,6 +145,14 @@ export default function CommandView({ morningPlan, setMorningPlan, loggedSession
           setLogRecover={setLogRecover}
           logRetention={logRetention}
           setLogRetention={setLogRetention}
+          logChecking={logChecking}
+          setLogChecking={setLogChecking}
+          logPractice={logPractice}
+          setLogPractice={setLogPractice}
+          logErrors={logErrors}
+          setLogErrors={setLogErrors}
+          systemRefinement={systemRefinement}
+          setSystemRefinement={setSystemRefinement}
           logNotes={logNotes}
           setLogNotes={setLogNotes}
           logActivePlanId={logActivePlanId}

@@ -9,6 +9,9 @@ export default function ArchiveView() {
   const [selectedSubject, setSelectedSubject] = useState<string>('all');
   const [selectedMonth, setSelectedMonth] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('newest');
+  
+  const [editingLogId, setEditingLogId] = useState<string | null>(null);
+  const [editFormData, setEditFormData] = useState<LogItem | null>(null);
 
   useEffect(() => {
     const keys = Object.keys(localStorage);
@@ -17,9 +20,9 @@ export default function ArchiveView() {
 
     // Filter and collect historical log files out of local application cache safely
     keys
-      .filter(k => k.startsWith('pcbm_log_'))
+      .filter(k => k.startsWith('axion_logs_') || k.startsWith('pcbm_log_'))
       .forEach(k => {
-         const dateStr = k.replace('pcbm_log_', '');
+         const dateStr = k.replace('axion_logs_', '').replace('pcbm_log_', '');
          try {
              const logs = JSON.parse(localStorage.getItem(k) || '[]');
              if (Array.isArray(logs) && logs.length > 0) {
@@ -38,6 +41,19 @@ export default function ArchiveView() {
        setSelectedDate(datesWithLogs[0]);
     }
   }, []);
+
+  const handleEditSave = () => {
+    if (!editFormData || !selectedDate) return;
+    
+    const updatedLogs = allLogsByDate[selectedDate].map(l => l.id === editFormData.id ? editFormData : l);
+    const newLogsByDate = { ...allLogsByDate, [selectedDate]: updatedLogs };
+    
+    setAllLogsByDate(newLogsByDate);
+    localStorage.setItem(`axion_logs_${selectedDate}`, JSON.stringify(updatedLogs));
+    
+    setEditingLogId(null);
+    setEditFormData(null);
+  };
 
   // Filter Engine
   const getFilteredLogsForDate = (dateStr: string): LogItem[] => {
@@ -199,50 +215,110 @@ export default function ArchiveView() {
                                         <span className="text-xs font-bold text-zinc-400 bg-black/20 border border-white/5 px-3 py-1.5 rounded-lg">
                                             Efficiency: <span style={{ color: conf.color }}>{score}%</span>
                                         </span>
+                                        <button onClick={() => { setEditingLogId(log.id); setEditFormData({ ...log }); }} className="text-zinc-500 hover:text-white transition-colors cursor-pointer ml-1" title="Edit Session">
+                                            <span className="material-symbols-outlined text-[18px]">edit</span>
+                                        </button>
                                     </div>
                                 </div>
 
-                                <h4 className="text-zinc-100 font-semibold text-lg mt-1">{log.topic}</h4>
-                                
-                                {log.revisionType && (
-                                    <div className="text-xs text-sky-400 font-semibold uppercase tracking-wider mt-0.5">Horizon: {log.revisionType}</div>
-                                )}
-
-                                {log.frictionAnalysis && (
-                                   <div className="mt-2 p-3.5 bg-amber-500/5 rounded-xl border border-amber-500/10 text-xs text-amber-300 leading-relaxed">
-                                       <strong className="text-amber-400">Friction Review Note:</strong> {log.frictionAnalysis}
-                                   </div>
-                                )}
-
-                                {log.notes && (
-                                   <div className="mt-1 p-3 bg-black/10 rounded-xl border border-white/5 text-sm text-zinc-400 italic">
-                                       "{log.notes}"
-                                   </div>
-                                )}
-
-                                <div className="flex flex-wrap gap-5 text-xs text-zinc-400 mt-3 border-t border-white/5 pt-3 font-medium">
-                                   {metricsText && (
-                                       <span className="flex items-center gap-1.5 text-zinc-200">
-                                           <span className="material-symbols-outlined text-[16px] text-zinc-500">menu_book</span> {metricsText}
-                                       </span>
-                                   )}
-                                   <span className="flex items-center gap-1.5"><span className="material-symbols-outlined text-[16px] text-zinc-500">timer</span> {log.activeMins}m Completed</span>
-                                   <span className="flex items-center gap-1.5"><span className="material-symbols-outlined text-[16px] text-zinc-500">close_fullscreen</span> {log.distractionMins}m Distracted</span>
-                                   {log.retentionScore !== undefined && <span className="flex items-center gap-1.5"><span className="material-symbols-outlined text-[16px] text-amber-400">psychology</span> Retention: {log.retentionScore}/10</span>}
-                                </div>
-
-                                {/* Graphic layout protection keeps base64 handwritings responsive */}
-                                {log.scratchpadImage && (
-                                    <div className="mt-4 border border-white/10 bg-black/40 rounded-2xl p-2 max-w-full overflow-hidden flex flex-col gap-1.5">
-                                        <div className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider px-2 pt-1 flex items-center gap-1">
-                                            <span className="material-symbols-outlined text-[12px]">draw</span> Handwritten Scratchpad Entry
+                                {editingLogId === log.id && editFormData ? (
+                                    <div className="flex flex-col gap-3 mt-4 border-t border-white/10 pt-4">
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div className="flex flex-col gap-1">
+                                                <label className="text-[10px] uppercase text-zinc-400 font-bold">Topic</label>
+                                                <input type="text" value={editFormData.topic} onChange={e => setEditFormData({ ...editFormData, topic: e.target.value })} className="bg-black/40 border border-white/10 rounded-lg p-2 text-sm text-white outline-none" />
+                                            </div>
+                                            <div className="flex flex-col gap-1">
+                                                <label className="text-[10px] uppercase text-zinc-400 font-bold">Study Mins</label>
+                                                <input type="number" value={editFormData.activeMins} onChange={e => setEditFormData({ ...editFormData, activeMins: Number(e.target.value) })} className="bg-black/40 border border-white/10 rounded-lg p-2 text-sm text-white outline-none" />
+                                            </div>
+                                            <div className="flex flex-col gap-1">
+                                                <label className="text-[10px] uppercase text-zinc-400 font-bold">Distraction Mins</label>
+                                                <input type="number" value={editFormData.distractionMins} onChange={e => setEditFormData({ ...editFormData, distractionMins: Number(e.target.value) })} className="bg-black/40 border border-white/10 rounded-lg p-2 text-sm text-white outline-none" />
+                                            </div>
+                                            <div className="flex flex-col gap-1">
+                                                <label className="text-[10px] uppercase text-zinc-400 font-bold">Break Mins</label>
+                                                <input type="number" value={editFormData.recoveryMins} onChange={e => setEditFormData({ ...editFormData, recoveryMins: Number(e.target.value) })} className="bg-black/40 border border-white/10 rounded-lg p-2 text-sm text-white outline-none" />
+                                            </div>
+                                            {(editFormData.sessionType === 'Study' || editFormData.sessionType === 'Exercise') && (
+                                              <>
+                                                <div className="flex flex-col gap-1">
+                                                    <label className="text-[10px] uppercase text-zinc-400 font-bold">Checking Mins</label>
+                                                    <input type="number" value={editFormData.checkingMins || 0} onChange={e => setEditFormData({ ...editFormData, checkingMins: Number(e.target.value) })} className="bg-black/40 border border-white/10 rounded-lg p-2 text-sm text-white outline-none" />
+                                                </div>
+                                                <div className="flex flex-col gap-1">
+                                                    <label className="text-[10px] uppercase text-zinc-400 font-bold">Errors</label>
+                                                    <input type="number" value={editFormData.errors || 0} onChange={e => setEditFormData({ ...editFormData, errors: Number(e.target.value) })} className="bg-black/40 border border-white/10 rounded-lg p-2 text-sm text-white outline-none" />
+                                                </div>
+                                              </>
+                                            )}
+                                            {editFormData.sessionType === 'Study' && (
+                                                <div className="flex flex-col gap-1">
+                                                    <label className="text-[10px] uppercase text-zinc-400 font-bold">Practice Mins</label>
+                                                    <input type="number" value={editFormData.practiceMins || 0} onChange={e => setEditFormData({ ...editFormData, practiceMins: Number(e.target.value) })} className="bg-black/40 border border-white/10 rounded-lg p-2 text-sm text-white outline-none" />
+                                                </div>
+                                            )}
                                         </div>
-                                        <img 
-                                           src={log.scratchpadImage} 
-                                           alt="Archived digital sketch drawing canvas template" 
-                                           className="w-full h-auto rounded-xl max-h-40 sm:max-h-56 object-contain bg-zinc-950 border border-white/5 shadow-inner" 
-                                        />
+                                        <div className="flex gap-2 justify-end mt-2">
+                                            <button onClick={() => setEditingLogId(null)} className="px-4 py-2 text-xs font-bold bg-white/5 hover:bg-white/10 rounded-lg cursor-pointer transition-colors">Cancel</button>
+                                            <button onClick={handleEditSave} className="px-4 py-2 text-xs font-bold bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 rounded-lg cursor-pointer transition-colors">Save Changes</button>
+                                        </div>
                                     </div>
+                                ) : (
+                                    <>
+                                        <h4 className="text-zinc-100 font-semibold text-lg mt-1">{log.topic}</h4>
+                                        
+                                        {log.revisionType && (
+                                            <div className="text-xs text-sky-400 font-semibold uppercase tracking-wider mt-0.5">Horizon: {log.revisionType}</div>
+                                        )}
+
+                                        {log.frictionAnalysis && (
+                                           <div className="mt-2 p-3.5 bg-amber-500/5 rounded-xl border border-amber-500/10 text-xs text-amber-300 leading-relaxed">
+                                               <strong className="text-amber-400">Friction Review Note:</strong> {log.frictionAnalysis}
+                                           </div>
+                                        )}
+
+                                        {log.notes && (
+                                           <div className="mt-1 p-3 bg-black/10 rounded-xl border border-white/5 text-sm text-zinc-400 italic">
+                                               "{log.notes}"
+                                           </div>
+                                        )}
+
+                                        {log.systemRefinement && (
+                                           <div className="mt-1 p-3 bg-amber-500/5 rounded-xl border border-amber-500/10 text-sm text-amber-100/80 italic">
+                                               <strong className="text-amber-400 text-xs uppercase tracking-wider block mb-1">System Refinement</strong>
+                                               "{log.systemRefinement}"
+                                           </div>
+                                        )}
+
+                                        <div className="flex flex-wrap gap-5 text-xs text-zinc-400 mt-3 border-t border-white/5 pt-3 font-medium">
+                                           {metricsText && (
+                                               <span className="flex items-center gap-1.5 text-zinc-200">
+                                                   <span className="material-symbols-outlined text-[16px] text-zinc-500">menu_book</span> {metricsText}
+                                               </span>
+                                           )}
+                                           <span className="flex items-center gap-1.5"><span className="material-symbols-outlined text-[16px] text-zinc-500">timer</span> {log.activeMins}m Completed</span>
+                                           <span className="flex items-center gap-1.5"><span className="material-symbols-outlined text-[16px] text-zinc-500">close_fullscreen</span> {log.distractionMins}m Distracted</span>
+                                           {log.retentionScore !== undefined && <span className="flex items-center gap-1.5"><span className="material-symbols-outlined text-[16px] text-amber-400">psychology</span> Retention: {log.retentionScore}/10</span>}
+                                           {log.checkingMins !== undefined && <span className="flex items-center gap-1.5"><span className="material-symbols-outlined text-[16px] text-sky-400">grading</span> Check: {log.checkingMins}m</span>}
+                                           {log.practiceMins !== undefined && <span className="flex items-center gap-1.5"><span className="material-symbols-outlined text-[16px] text-indigo-400">edit_note</span> Practice: {log.practiceMins}m</span>}
+                                           {log.errors !== undefined && <span className="flex items-center gap-1.5"><span className="material-symbols-outlined text-[16px] text-rose-400">error</span> Errors: {log.errors}</span>}
+                                        </div>
+
+                                        {/* Graphic layout protection keeps base64 handwritings responsive */}
+                                        {log.scratchpadImage && (
+                                            <div className="mt-4 border border-white/10 bg-black/40 rounded-2xl p-2 max-w-full overflow-hidden flex flex-col gap-1.5">
+                                                <div className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider px-2 pt-1 flex items-center gap-1">
+                                                    <span className="material-symbols-outlined text-[12px]">draw</span> Handwritten Scratchpad Entry
+                                                </div>
+                                                <img 
+                                                   src={log.scratchpadImage} 
+                                                   alt="Archived digital sketch drawing canvas template" 
+                                                   className="w-full h-auto rounded-xl max-h-40 sm:max-h-56 object-contain bg-zinc-950 border border-white/5 shadow-inner" 
+                                                />
+                                            </div>
+                                        )}
+                                    </>
                                 )}
 
                             </div>

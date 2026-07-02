@@ -8,23 +8,7 @@ interface AnalysisViewProps {
 
 export default function AnalysisView({ loggedSessions, userSettings }: AnalysisViewProps) {
 
-  // ── Weekly Reflection State ──────────────────────────────────────────────
-  const [reflectionText, setReflectionText] = useState('');
-  const [weeklyInsight, setWeeklyInsight] = useState('');
-  const [isLoadingInsight, setIsLoadingInsight] = useState(false);
 
-  // Load saved weekly insight on mount
-  useEffect(() => {
-    const weekKey = getWeekKey();
-    const saved = localStorage.getItem(`pcbm_weekly_${weekKey}`);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        setReflectionText(parsed.reflection || '');
-        setWeeklyInsight(parsed.insight || '');
-      } catch(e) {}
-    }
-  }, []);
 
   // ── Helpers ──────────────────────────────────────────────────────────────
   function getWeekKey(): string {
@@ -39,10 +23,13 @@ export default function AnalysisView({ loggedSessions, userSettings }: AnalysisV
     for (let i = 0; i < n; i++) {
       const dateStr = getLocalDateString(-i);
       try {
-        const raw = localStorage.getItem(`pcbm_log_${dateStr}`);
+        const raw = localStorage.getItem(`pcbm_log_${dateStr}`) || localStorage.getItem(`axion_logs_${dateStr}`);
         if (raw) {
           const logs = JSON.parse(raw);
-          if (Array.isArray(logs)) result.push(...logs);
+          if (Array.isArray(logs)) {
+              logs.forEach(l => l.logDate = dateStr);
+              result.push(...logs);
+          }
         }
       } catch(e) {}
     }
@@ -111,6 +98,15 @@ export default function AnalysisView({ loggedSessions, userSettings }: AnalysisV
     1
   );
 
+  // Grouped Topics for Nested UI (Last 7 Days)
+  const groupedTopics: { [topic: string]: LogItem[] } = {};
+  last7Logs.forEach(log => {
+      if (!log.isMissed) {
+          if (!groupedTopics[log.topic]) groupedTopics[log.topic] = [];
+          groupedTopics[log.topic].push(log);
+      }
+  });
+
   // ── Syllabus Pace Predictor ──────────────────────────────────────────────
   const activeSubjects = userSettings.activeSubjects || ['bio', 'phys', 'chem', 'math'];
 
@@ -152,57 +148,7 @@ export default function AnalysisView({ loggedSessions, userSettings }: AnalysisV
     return { sub, conf, totalPages, coveredAllTime, covered7Days, remaining, avgPagesPerDay7, daysToFinish, progressPct };
   });
 
-  // ── Weekly AI Reflection ─────────────────────────────────────────────────
-  const handleGetInsight = async () => {
-    if (!reflectionText.trim()) {
-      alert("Please write your weekly reflection first.");
-      return;
-    }
-    const apiKey = localStorage.getItem('gemini_api_key');
-    if (!apiKey) {
-      alert("Please add your Gemini API Key in the Account tab first.");
-      return;
-    }
 
-    setIsLoadingInsight(true);
-    try {
-      const logSummary = last7Logs
-        .filter(l => !l.isMissed)
-        .map(l => `${getSubjectConfig(l.subject).name}: ${l.topic} — ${l.activeMins}m active, retention ${l.retentionScore || 'N/A'}/10${l.frictionAnalysis ? ', friction: ' + l.frictionAnalysis : ''}`)
-        .join('\n');
-
-      const prompt = `You are a focused study coach. A student shares their weekly study data and reflection. Give 3–5 lines of specific, actionable advice. Be direct and practical, not generic.
-
-LAST 7 DAYS OF STUDY LOGS:
-${logSummary || 'No logs found.'}
-
-STUDENT REFLECTION:
-${reflectionText}
-
-Respond with only your advice. No preamble.`;
-
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-      });
-      const data = await res.json();
-      const insight = data.candidates?.[0]?.content?.parts?.[0]?.text || 'Could not generate insight. Try again.';
-      setWeeklyInsight(insight);
-
-      // Save to localStorage keyed by week
-      const weekKey = getWeekKey();
-      localStorage.setItem(`pcbm_weekly_${weekKey}`, JSON.stringify({
-        reflection: reflectionText,
-        insight,
-        savedAt: new Date().toISOString()
-      }));
-    } catch(e) {
-      alert("Failed to get AI insight. Check your API key.");
-    } finally {
-      setIsLoadingInsight(false);
-    }
-  };
 
   // ── Render ───────────────────────────────────────────────────────────────
   return (
@@ -411,43 +357,85 @@ Respond with only your advice. No preamble.`;
         </div>
       </div>
 
-      {/* ── WEEKLY REFLECTION + AI SUMMARY ───────────────────────────────── */}
+      {/* ── NESTED UI GROUPING (Topic Logs) ───────────────────────────────── */}
       <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-[32px] p-6 shadow-2xl flex flex-col gap-6">
         <div>
-          <h4 className="text-base font-bold text-white tracking-tight">Weekly Reflection</h4>
-          <p className="text-xs text-zinc-400 mt-0.5">What worked this week? What didn't? AI will read your last 7 days of logs and give specific advice.</p>
+          <h4 className="text-base font-bold text-white tracking-tight">Recent Topics Review</h4>
+          <p className="text-xs text-zinc-400 mt-0.5">Your past 7 days grouped by topic, nested with study and revision loops.</p>
         </div>
+        <div className="flex flex-col gap-3">
+            {Object.keys(groupedTopics).length === 0 ? (
+                 <div className="p-4 text-center text-zinc-500 text-xs border border-dashed border-white/10 rounded-xl">No logs found in the last 7 days.</div>
+            ) : (
+                Object.entries(groupedTopics).map(([topic, logs]) => {
+                    const firstLog = logs[0];
+                    const conf = getSubjectConfig(firstLog.subject);
+                    return (
+                       <div key={topic} className="bg-black/20 border border-white/5 rounded-2xl overflow-hidden flex flex-col">
+                           <div className="p-4 flex items-center justify-between bg-white/5 border-b border-white/5">
+                               <div className="flex items-center gap-3">
+                                   <span className="w-2 h-2 rounded-full" style={{ backgroundColor: conf.color }}></span>
+                                   <span className="font-bold text-sm text-zinc-200">{topic}</span>
+                               </div>
+                               <span className="text-xs font-mono text-zinc-500">{logs.length} session{logs.length > 1 ? 's' : ''}</span>
+                           </div>
+                           <div className="flex flex-col">
+                               {logs.map((log, idx) => (
+                                   <div key={log.id} className={`p-3 flex items-center justify-between text-xs transition-colors hover:bg-white/5 ${idx !== logs.length - 1 ? 'border-b border-white/5' : ''}`}>
+                                       <div className="flex items-center gap-3 pl-4 border-l-2 border-white/10 ml-2">
+                                           <span className={`px-2 py-0.5 rounded uppercase font-bold tracking-widest text-[9px] ${
+                                               log.sessionType === 'Study' ? 'bg-blue-500/20 text-blue-400' : 
+                                               log.sessionType === 'Revise' ? 'bg-emerald-500/20 text-emerald-400' : 
+                                               log.sessionType === 'Exercise' ? 'bg-orange-500/20 text-orange-400' : 'bg-rose-500/20 text-rose-400'
+                                           }`}>
+                                               {log.sessionType}
+                                           </span>
+                                           <span className="text-zinc-400">{log.logDate}</span>
+                                       </div>
+                                       <div className="flex items-center gap-3 text-zinc-500">
+                                           <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[14px]">timer</span> {log.activeMins}m</span>
+                                           {log.retentionScore !== undefined && <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[14px] text-amber-500">psychology</span> {log.retentionScore}/10</span>}
+                                       </div>
+                                   </div>
+                               ))}
+                           </div>
+                       </div>
+                    );
+                })
+            )}
+        </div>
+      </div>
 
-        <div className="flex flex-col gap-4">
-          <textarea
-            rows={4}
-            value={reflectionText}
-            onChange={e => setReflectionText(e.target.value)}
-            placeholder="e.g. I kept getting distracted during Chemistry. Biology went well but I'm behind on pages. Physics practice questions felt too hard..."
-            className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm outline-none text-white focus:border-white/20 transition-colors resize-none"
-          />
-
-          <button
-            onClick={handleGetInsight}
-            disabled={isLoadingInsight || !reflectionText.trim()}
-            className="self-start flex items-center gap-2 px-6 py-3 rounded-xl bg-white text-black font-bold text-sm hover:bg-zinc-200 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.99]"
-          >
-            <span className="material-symbols-outlined text-[18px]">
-              {isLoadingInsight ? 'hourglass_top' : 'psychology'}
-            </span>
-            {isLoadingInsight ? 'Analysing...' : 'Get AI Insight'}
-          </button>
-
-          {weeklyInsight && (
-            <div className="bg-black/20 border border-white/10 rounded-2xl p-5 flex flex-col gap-3">
-              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-zinc-400">
-                <span className="material-symbols-outlined text-[16px]" style={{ color: 'var(--theme-primary)' }}>lightbulb</span>
-                AI Coach — {getWeekKey()}
+      {/* ── TIME ALLOCATION DISTRIBUTION ─────────────────────────────────── */}
+      <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-[32px] p-6 shadow-2xl flex flex-col gap-6">
+          <div className="flex justify-between items-center">
+              <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-400">Time Allocation Distribution</h3>
+              <div className="text-xs font-bold bg-black/40 border border-white/10 px-3 py-1.5 rounded-lg text-emerald-400">
+                  Total: {totalMinutes} mins
               </div>
-              <p className="text-sm text-zinc-200 leading-relaxed whitespace-pre-wrap">{weeklyInsight}</p>
-            </div>
-          )}
-        </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {Object.entries(subjectMinutes).map(([key, val]) => {
+                  const config = getSubjectConfig(key);
+                  const maxVal = Math.max(...Object.values(subjectMinutes), 1);
+                  const barWidth = Math.min(100, Math.round((val / maxVal) * 100));
+
+                  return (
+                      <div key={key} className="flex flex-col gap-1.5 bg-black/20 p-4 rounded-xl border border-white/5">
+                          <div className="flex justify-between text-xs font-semibold px-1">
+                              <span className="text-zinc-300 capitalize">{config.name}</span>
+                              <span className="text-zinc-500 font-mono">{val} mins</span>
+                          </div>
+                          <div className="w-full h-3 bg-black/40 rounded-full overflow-hidden border border-white/5">
+                              <div 
+                                  className="h-full rounded-full transition-all duration-500" 
+                                  style={{ width: `${barWidth || 3}%`, backgroundColor: config.color }} 
+                              />
+                          </div>
+                      </div>
+                  );
+              })}
+          </div>
       </div>
 
     </div>

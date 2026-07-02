@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { PlanItem, LogItem, getSubjectConfig } from '../types';
+import { PlanItem, LogItem, getSubjectConfig, calculateNextReviewDate } from '../types';
 import { nanoid } from 'nanoid';
 
 interface ChatbotProps {
@@ -40,12 +40,6 @@ export default function Chatbot({ morningPlan, setMorningPlan, loggedSessions, s
   const handleSendMessage = async () => {
     if (!input.trim() || isLoading) return;
 
-    const apiKey = localStorage.getItem('gemini_api_key');
-    if (!apiKey) {
-      alert("Please add your Gemini API Key inside your Account profile settings first.");
-      return;
-    }
-
     const userText = input.trim();
     setMessages(prev => [...prev, { sender: 'user', text: userText }]);
     setInput('');
@@ -56,30 +50,42 @@ export default function Chatbot({ morningPlan, setMorningPlan, loggedSessions, s
       const safeLogText = JSON.stringify(loggedSessions || []).replace(/[\/\\]/g, '');
       const safeUserText = userText.replace(/["'\\]/g, ' ').replace(/[\r\n]/g, ' ');
 
+      const allKeys = Object.keys(localStorage);
+      const allLogs = allKeys.filter(k => k.startsWith('axion_logs_') || k.startsWith('pcbm_log_')).map(k => {
+          return { date: k.replace('axion_logs_', '').replace('pcbm_log_', ''), logs: JSON.parse(localStorage.getItem(k) || '[]') };
+      });
+      const archiveText = JSON.stringify(allLogs).replace(/[\/\\]/g, '');
+
+      const analysisData = Object.keys(localStorage).filter(k => k.startsWith('axion_logs_') || k.startsWith('pcbm_log_')).reduce((acc: any[], k) => {
+          const logs = JSON.parse(localStorage.getItem(k) || '[]');
+          logs.forEach((l: any) => {
+              if (!l.isMissed && l.subject && l.activeMins) {
+                 acc.push({ date: k.replace('axion_logs_', '').replace('pcbm_log_', ''), ...l });
+              }
+          });
+          return acc;
+      }, []);
+      const analysisText = JSON.stringify(analysisData).replace(/[\/\\]/g, '');
+
       const operationalPrompt = `You are a supportive, direct study assistant classmates style. Avoid robotic jargon.
 Current items: Plans: ${safePlanText} | Records: ${safeLogText}
+Historical Archive & Analysis Data (Time Allocation etc.): ${analysisText}
+
 If user requests updates, append standard commands:
 To add a plan: :::{"command": "add_plan", "subject": "bio"|"phys"|"chem"|"math", "topic": "string", "mins": number, "units": number}:::
-To update a log: :::{"command": "add_log", "subject": "bio"|"phys"|"chem"|"math", "topic": "string", "activeMins": number, "distractionMins": number, "startPage": number, "endPage": number}:::
+To update a log: :::{"command": "add_log", "subject": "bio"|"phys"|"chem"|"math", "topic": "string", "activeMins": number, "distractionMins": number, "checkingMins": number, "practiceMins": number, "errors": number, "startPage": number, "endPage": number}:::
+
+Proactive Data Gathering rules: If the user wants to log a session but is missing checkingMins, practiceMins, or errors, YOU MUST ASK for them before outputting the "add_log" command. 
+HOWEVER, if the user explicitly says "log the session as it is", IMMEDIATELY bypass the missing requirements (use 0 or null) and output the "add_log" command.
 
 User input message: "${safeUserText}"`;
 
-      const reqBody = {
-        contents: [
-          {
-            parts: [
-              { text: operationalPrompt }
-            ]
-          }
-        ]
-      };
-
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+      const res = await fetch(`/api/gemini/generate`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(reqBody)
+        body: JSON.stringify({ prompt: operationalPrompt })
       });
 
       if (!res.ok) {
@@ -87,7 +93,7 @@ User input message: "${safeUserText}"`;
       }
 
       const data = await res.json();
-      let assistantText = data.candidates?.[0]?.content?.parts?.[0]?.text || "Let's try rephrasing that request.";
+      let assistantText = data.text || "Let's try rephrasing that request.";
 
       const jsonRegex = /:::(.*?):::/s;
       const match = assistantText.match(jsonRegex);
@@ -119,6 +125,9 @@ User input message: "${safeUserText}"`;
                  activeMins: commandData.activeMins || 0,
                  distractionMins: commandData.distractionMins || 0,
                  recoveryMins: 0,
+                 checkingMins: commandData.checkingMins || undefined,
+                 practiceMins: commandData.practiceMins || undefined,
+                 errors: commandData.errors !== undefined ? commandData.errors : undefined,
                  retentionScore: commandData.retentionScore || 5,
                  startPage: commandData.startPage || undefined,
                  endPage: commandData.endPage || undefined,
@@ -126,6 +135,7 @@ User input message: "${safeUserText}"`;
                  frictionAnalysis: commandData.frictionPoint || undefined,
                  synced: false
              };
+             newLog.nextReviewDate = calculateNextReviewDate(newLog);
              setLoggedSessions(prev => [...prev, newLog]);
           }
 
@@ -139,6 +149,8 @@ User input message: "${safeUserText}"`;
     } catch (err) {
       console.error("Gemini Handshake Failure:", err);
       setMessages(prev => [...prev, { sender: 'assistant', text: "Connection anomaly encountered. Please check your API key or rephrase your input sentence." }]);
+    } finally {
+      setIsLoading(false);
     }
   };
 

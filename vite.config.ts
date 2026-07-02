@@ -9,9 +9,6 @@ export default defineConfig(({mode}) => {
     // Relocking base to your active case-sensitive repository path to prevent asset loading failure
     base: './',
     plugins: [react(), tailwindcss()],
-    define: {
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

@@ -81,32 +81,7 @@ export default function ConceptVelocity({ loggedSessions }: ConceptVelocityProps
            </div>
         </div>
 
-        {/* Goal #17: Pre-determined structural bar charts modeling study time ratios */}
-        <div className="mt-4">
-            <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-400 mb-4">Time Allocation Distribution</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-black/20 border border-white/5 p-6 rounded-2xl">
-                {Object.entries(minutesPerSubject).map(([key, val]) => {
-                    const config = getSubjectConfig(key);
-                    const maxVal = Math.max(...Object.values(minutesPerSubject), 1);
-                    const barWidth = Math.min(100, Math.round((val / maxVal) * 100));
 
-                    return (
-                        <div key={key} className="flex flex-col gap-1.5">
-                            <div className="flex justify-between text-xs font-semibold px-1">
-                                <span className="text-zinc-300 capitalize">{config.name}</span>
-                                <span className="text-zinc-500 font-mono">{val} mins</span>
-                            </div>
-                            <div className="w-full h-3 bg-black/40 rounded-full overflow-hidden border border-white/5">
-                                <div 
-                                    className="h-full rounded-full transition-all duration-500" 
-                                    style={{ width: `${barWidth || 3}%`, backgroundColor: config.color }} 
-                                />
-                            </div>
-                        </div>
-                    );
-                })}
-            </div>
-        </div>
 
         {/* Actionable performance analytics tips tray */}
         <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex gap-3 items-start mt-2">

@@ -5,6 +5,7 @@ import ArchiveView from './components/ArchiveView';
 import AccountView from './components/AccountView';
 import AnalysisView from './components/AnalysisView';
 import SettingsView from './components/SettingsView';
+import SundayReviewView from './components/SundayReviewView';
 import Sidebar from './components/Sidebar';
 import Chatbot from './components/Chatbot';
 import { nanoid } from 'nanoid';
@@ -25,6 +26,7 @@ export default function App() {
 
   const [isLoaded, setIsLoaded] = useState(false);
   const [profileImg, setProfileImg] = useState<string | null>(null);
+  const [showSyncTray, setShowSyncTray] = useState(false);
 
   // Core Glass Styling Depth States
   const [glassBlur, setGlassBlur] = useState(24);
@@ -89,7 +91,34 @@ export default function App() {
         const savedSettings = localStorage.getItem('pcbm_settings');
         const savedProfile = localStorage.getItem('gcal_profile');
         
-        setMorningPlan(safeParseArray(savedPlan));
+        let initialPlan = safeParseArray(savedPlan);
+
+        // Automated Planning: Spaced Repetition SR injection
+        const todayStr = getLocalDateString(0);
+        const tomorrowStr = getLocalDateString(1);
+        
+        const allKeys = Object.keys(localStorage);
+        allKeys.filter(k => k.startsWith('axion_logs_') || k.startsWith('pcbm_log_')).forEach(k => {
+            if (k === `pcbm_log_${activeDate}` || k === `axion_logs_${activeDate}`) return; 
+            const logs = safeParseArray(localStorage.getItem(k));
+            logs.forEach(log => {
+                if (log.nextReviewDate && (log.nextReviewDate === todayStr || log.nextReviewDate === tomorrowStr)) {
+                    const alreadyExists = initialPlan.some(p => p.topic === log.topic && p.subject === log.subject);
+                    if (!alreadyExists) {
+                        initialPlan.push({
+                            id: nanoid(),
+                            subject: log.subject,
+                            topic: log.topic,
+                            sessionType: 'Revise',
+                            targetMins: 30,
+                            status: 'pending'
+                        });
+                    }
+                }
+            });
+        });
+
+        setMorningPlan(initialPlan);
         setLoggedSessions(safeParseArray(savedLog));
 
         if (savedSettings) {
@@ -119,6 +148,27 @@ export default function App() {
     localStorage.setItem(`pcbm_log_${activeDate}`, JSON.stringify(loggedSessions || []));
     localStorage.setItem('pcbm_settings', JSON.stringify(userSettings));
   }, [morningPlan, loggedSessions, userSettings, isLoaded, activeDate]);
+
+  useEffect(() => {
+    const checkSyncTime = async () => {
+       const now = new Date();
+       if (now.getHours() === 19 && now.getMinutes() >= 0 && now.getMinutes() <= 30) {
+           const lastSyncStr = localStorage.getItem('last_auto_sync');
+           if (lastSyncStr !== new Date().toDateString()) {
+               const token = localStorage.getItem('gcal_token');
+               if (token) {
+                   setShowSyncTray(true);
+               }
+           }
+       }
+       // Enforce cache eviction engine on a regular heartbeat
+       import('./lib/driveSync').then(m => m.enforceCacheEviction());
+    };
+    
+    checkSyncTime();
+    const int = setInterval(checkSyncTime, 60000); // check every minute
+    return () => clearInterval(int);
+  }, []);
 
   const [isSyncing, setIsSyncing] = useState(false);
   const hasUnsyncedLogs = loggedSessions.some(l => !l.synced);
@@ -198,7 +248,20 @@ export default function App() {
             targetUnits = `Target Material: ${vsa + sa + la} Questions (${vsa} Short, ${sa} Medium, ${la} Long)`;
         } else {
             targetUnits = `Target Range: Pages ${log.startPage || 0} to ${log.endPage || 0}`;
+            if (log.sessionType === 'Study') {
+               const vsa = log.vsaCount || 0;
+               const sa = log.saCount || 0;
+               const la = log.laCount || 0;
+               if (vsa + sa + la > 0) {
+                   targetUnits += `\nQuestions: ${vsa + sa + la} (${vsa} Short, ${sa} Medium, ${la} Long)`;
+               }
+            }
         }
+
+        let colorId = '9'; // Deep blue for Study
+        if (schedule.type === 'MISSED' || log.isMissed) colorId = '11'; // Red
+        else if (log.sessionType === 'Revise' || schedule.type === 'REVISED') colorId = '10'; // Green
+        else if (log.sessionType === 'Exercise' || schedule.type === 'PRACTICE') colorId = '6'; // Orange
 
         const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
             method: 'POST',
@@ -211,6 +274,7 @@ export default function App() {
                 description: log.isMissed ? 'Session was scheduled but not completed.' : `${targetUnits}\n\nFocus Rating: ${getFocusScore(log)}%\nRetention Level: ${log.retentionScore || 'N/A'}/10\n\nStudy Notes:\n${log.notes}`,
                 start: { date: dateStr },
                 end: { date: endStr },
+                colorId: colorId,
                 extendedProperties: {
                     private: { pcbmHash: eventHash }
                 }
@@ -307,6 +371,13 @@ export default function App() {
                 <span>Settings</span>
               </div>
             );
+          case 'weekly':
+            return (
+              <div className="flex items-center gap-2.5">
+                <span className="material-symbols-outlined text-amber-400 text-[22px]">check_box</span>
+                <span>Weekly Review</span>
+              </div>
+            );
           default: 
             return (
               <div className="flex items-center gap-2.5">
@@ -398,6 +469,7 @@ export default function App() {
             )}
             {currentTab === 'archive' && <ArchiveView />}
             {currentTab === 'analysis' && <AnalysisView loggedSessions={loggedSessions} userSettings={userSettings} />}
+            {currentTab === 'weekly' && <SundayReviewView loggedSessions={loggedSessions} setLoggedSessions={setLoggedSessions} />}
             {currentTab === 'account' && (
               <AccountView 
                 userSettings={userSettings} 
@@ -446,6 +518,45 @@ export default function App() {
           setLoggedSessions={setLoggedSessions}
         />
       </div>
+      {/* Google Drive Master Backup Tray */}
+      {showSyncTray && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur-xl border border-indigo-500/30 shadow-2xl p-6 rounded-3xl z-[100] flex flex-col md:flex-row items-center gap-6 animate-ios-slide-up max-w-lg w-[calc(100%-2rem)]">
+              <div className="w-14 h-14 bg-indigo-500/20 rounded-full flex items-center justify-center shrink-0 border border-indigo-500/20 shadow-[0_0_15px_rgba(99,102,241,0.3)]">
+                  <span className="material-symbols-outlined text-[28px] text-indigo-400">cloud_upload</span>
+              </div>
+              <div className="flex-1 flex flex-col gap-1 text-center md:text-left">
+                  <h4 className="text-white font-bold text-lg tracking-tight">Daily Cloud Sync Ready</h4>
+                  <p className="text-xs text-zinc-400 leading-relaxed">It's 7:00 PM. Would you like to backup your day's history to Google Drive?</p>
+              </div>
+              <div className="flex gap-3 w-full md:w-auto">
+                  <button 
+                      onClick={() => setShowSyncTray(false)} 
+                      className="flex-1 md:flex-none px-5 py-2.5 rounded-xl border border-white/10 text-zinc-300 text-sm font-bold hover:bg-white/5 transition-colors cursor-pointer"
+                  >
+                      Skip
+                  </button>
+                  <button 
+                      onClick={async () => {
+                          const token = localStorage.getItem('gcal_token');
+                          if (token) {
+                              const { uploadBackup } = await import('./lib/driveSync');
+                              const success = await uploadBackup(token);
+                              if (success) {
+                                  alert("Backup to Google Drive successful!");
+                              } else {
+                                  alert("Backup failed. Please check your connection.");
+                              }
+                          }
+                          setShowSyncTray(false);
+                      }} 
+                      className="flex-1 md:flex-none px-5 py-2.5 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white text-sm font-bold shadow-lg shadow-indigo-500/20 transition-all active:scale-95 cursor-pointer"
+                  >
+                      Sync Now
+                  </button>
+              </div>
+          </div>
+      )}
+
     </div>
   );
 }

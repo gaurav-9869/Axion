@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { nanoid } from 'nanoid';
-import { SubjectKey, SessionMode, LogItem, PlanItem, UserSettings, getSubjectConfig, getFocusScore } from '../types';
+import { SubjectKey, SessionMode, LogItem, PlanItem, UserSettings, getSubjectConfig, getFocusScore, calculateNextReviewDate } from '../types';
 
 interface DailyLedgerProps {
   morningPlan: PlanItem[];
@@ -21,6 +21,14 @@ interface DailyLedgerProps {
   setLogRecover: (v: string) => void;
   logRetention: string;
   setLogRetention: (v: string) => void;
+  logChecking: string;
+  setLogChecking: (v: string) => void;
+  logPractice: string;
+  setLogPractice: (v: string) => void;
+  logErrors: string;
+  setLogErrors: (v: string) => void;
+  systemRefinement: string;
+  setSystemRefinement: (v: string) => void;
   logNotes: string;
   setLogNotes: (v: string) => void;
   logActivePlanId: string | null;
@@ -109,17 +117,24 @@ export default function DailyLedger(props: DailyLedgerProps) {
           activeMins: Number(props.logActive) || 0,
           distractionMins: Number(props.logDistract) || 0,
           recoveryMins: Number(props.logRecover) || 0,
-          retentionScore: Number(props.logRetention) || 5,
+          checkingMins: (props.logType === 'Study' || props.logType === 'Exercise') && Number(props.logChecking) ? Number(props.logChecking) : undefined,
+          practiceMins: props.logType === 'Study' && Number(props.logPractice) ? Number(props.logPractice) : undefined,
+          errors: (props.logType === 'Study' || props.logType === 'Exercise') && Number(props.logErrors) !== undefined ? Number(props.logErrors) : undefined,
+          retentionScore: props.logType === 'Study' ? (Number(props.logRetention) || 5) : undefined,
           startPage: props.logType !== 'Exercise' && Number(props.logStartPage) ? Number(props.logStartPage) : undefined,
           endPage: props.logType !== 'Exercise' && Number(props.logEndPage) ? Number(props.logEndPage) : undefined,
-          vsaCount: props.logType === 'Exercise' && Number(props.logVsa) ? Number(props.logVsa) : undefined,
-          saCount: props.logType === 'Exercise' && Number(props.logSa) ? Number(props.logSa) : undefined,
-          laCount: props.logType === 'Exercise' && Number(props.logLa) ? Number(props.logLa) : undefined,
+          vsaCount: (props.logType === 'Exercise' || props.logType === 'Study') && Number(props.logVsa) ? Number(props.logVsa) : undefined,
+          saCount: (props.logType === 'Exercise' || props.logType === 'Study') && Number(props.logSa) ? Number(props.logSa) : undefined,
+          laCount: (props.logType === 'Exercise' || props.logType === 'Study') && Number(props.logLa) ? Number(props.logLa) : undefined,
           frictionAnalysis: frictionText.trim() || undefined,
           notes: props.logNotes.trim(),
+          systemRefinement: props.systemRefinement.trim() || undefined,
           synced: false,
           scratchpadImage: canvasDrawingData
       };
+
+      // Spaced Repetition Scheduling
+      newLog.nextReviewDate = calculateNextReviewDate(newLog);
 
       props.setLoggedSessions(prev => [...prev, newLog]);
       
@@ -140,30 +155,26 @@ export default function DailyLedger(props: DailyLedgerProps) {
       props.setLogSa('0');
       props.setLogLa('0');
       props.setLogRetention('5');
+      props.setLogChecking('0');
+      props.setLogPractice('0');
+      props.setLogErrors('0');
+      props.setSystemRefinement('');
       setCanvasDrawingData(undefined);
       setIsAiPopulated(false);
   };
 
   const handleExtractAI = async () => {
       if (!autoFillInput.trim()) return;
-      const apiKey = localStorage.getItem('gemini_api_key');
-      if (!apiKey) {
-          alert("Please add your Gemini API Key in the Settings tab first.");
-          return;
-      }
 
       setIsExtracting(true);
       try {
-          const reqBody = {
-              contents: [{ parts: [{ text: `Analyze this description: "${autoFillInput}". Extract parameters into raw JSON: { "topic": "string", "subject": "bio"|"phys"|"chem"|"math", "sessionType": "Study"|"Revise"|"Exercise", "activeMins": number, "distractionMins": number, "startPage": number, "endPage": number, "vsaqCount": number, "saqCount": number, "laqCount": number, "retentionScore": number, "frictionPoint": "string" }.` }] }]
-          };
-          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+          const res = await fetch(`/api/gemini/generate`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(reqBody)
+              body: JSON.stringify({ prompt: `Analyze this description: "${autoFillInput}". Extract parameters into raw JSON: { "topic": "string", "subject": "bio"|"phys"|"chem"|"math", "sessionType": "Study"|"Revise"|"Exercise", "activeMins": number, "distractionMins": number, "startPage": number, "endPage": number, "vsaqCount": number, "saqCount": number, "laqCount": number, "retentionScore": number, "frictionPoint": "string" }.` })
           });
           const data = await res.json();
-          const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+          const textResponse = data.text || '{}';
           const parsed = JSON.parse(textResponse.replace(/```json|```/g, '').trim());
           
           if (parsed.topic) props.setLogTopic(parsed.topic);
@@ -192,14 +203,7 @@ export default function DailyLedger(props: DailyLedgerProps) {
     <section className="flex flex-col gap-6 w-full text-zinc-100">
         <div className="ios-glass-panel p-6 flex flex-col gap-6">
            
-           {/* Quick Log input wrapper */}
-           <div className="flex flex-col gap-2">
-               <label className="text-xs text-zinc-400 font-bold tracking-wider uppercase">Quick Log input</label>
-               <div className="flex gap-2">
-                   <input type="text" value={autoFillInput} onChange={e => setAutoFillInput(e.target.value)} placeholder="e.g., Biology 40 mins pages 20 to 35 retention 8" className="flex-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none" />
-                   <button onClick={handleExtractAI} disabled={isExtracting || !autoFillInput.trim()} className="px-5 bg-white text-black rounded-xl text-xs font-bold transition-all hover:bg-zinc-200 cursor-pointer">{isExtracting ? 'Loading...' : 'Fill Form'}</button>
-               </div>
-           </div>
+
 
            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                <div className="flex flex-col gap-2">
@@ -236,7 +240,7 @@ export default function DailyLedger(props: DailyLedgerProps) {
                </div>
            )}
 
-           {props.logType !== 'Exercise' ? (
+           {props.logType !== 'Exercise' && (
                <div className="grid grid-cols-2 gap-5">
                    <div className="flex flex-col gap-2">
                        <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Start Page</label>
@@ -247,7 +251,9 @@ export default function DailyLedger(props: DailyLedgerProps) {
                        <input type="number" value={props.logEndPage} onChange={e => props.setLogEndPage(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl p-3.5 text-sm outline-none" />
                    </div>
                </div>
-           ) : (
+           )}
+
+           {(props.logType === 'Exercise' || props.logType === 'Study') && (
                <div className="grid grid-cols-3 gap-3">
                    <div className="flex flex-col gap-2">
                        <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Short Qs</label>
@@ -279,22 +285,43 @@ export default function DailyLedger(props: DailyLedgerProps) {
                </div>
            </div>
 
-           <div className="flex flex-col gap-2">
-               <div className="flex justify-between items-center">
-                   <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Retention Score</label>
-                   <span className="text-xs font-mono font-bold bg-black/40 border border-white/10 px-2.5 py-1 rounded text-amber-400">{props.logRetention} / 10</span>
-               </div>
-               {isAiPopulated && (
-                   <div className="w-full p-3 bg-black/30 border border-white/5 rounded-xl text-[12px] text-zinc-400">
-                       Auto-filled by AI extraction loop. Drag the slider to override.
+           {(props.logType === 'Study' || props.logType === 'Exercise') && (
+               <div className="grid grid-cols-3 gap-4 bg-black/20 p-3 rounded-2xl border border-white/5">
+                   <div className="flex flex-col gap-1">
+                       <label className="text-[10px] uppercase text-zinc-400 font-bold text-center" title="Time spent checking answers">Checking Mins</label>
+                       <input type="number" value={props.logChecking} onChange={e => props.setLogChecking(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl p-2 text-sm text-center font-bold text-emerald-400 outline-none" />
                    </div>
-               )}
-               <input
-                   type="range" min="1" max="10" step="1" value={props.logRetention}
-                   onChange={e => { props.setLogRetention(e.target.value); setIsAiPopulated(false); }}
-                   className="w-full accent-amber-400 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer mt-1"
-               />
-           </div>
+                   {props.logType === 'Study' ? (
+                       <div className="flex flex-col gap-1">
+                           <label className="text-[10px] uppercase text-zinc-400 font-bold text-center" title="Time spent practicing questions">Practice Mins</label>
+                           <input type="number" value={props.logPractice} onChange={e => props.setLogPractice(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl p-2 text-sm text-center font-bold text-emerald-400 outline-none" />
+                       </div>
+                   ) : <div/>}
+                   <div className="flex flex-col gap-1">
+                       <label className="text-[10px] uppercase text-zinc-400 font-bold text-center" title="Number of incorrect answers">Errors</label>
+                       <input type="number" value={props.logErrors} onChange={e => props.setLogErrors(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl p-2 text-sm text-center font-bold text-rose-400 outline-none" />
+                   </div>
+               </div>
+           )}
+
+           {props.logType === 'Study' && (
+             <div className="flex flex-col gap-2">
+                 <div className="flex justify-between items-center">
+                     <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Retention Score</label>
+                     <span className="text-xs font-mono font-bold bg-black/40 border border-white/10 px-2.5 py-1 rounded text-amber-400">{props.logRetention} / 10</span>
+                 </div>
+                 {isAiPopulated && (
+                     <div className="w-full p-3 bg-black/30 border border-white/5 rounded-xl text-[12px] text-zinc-400">
+                         Auto-filled by AI extraction loop. Drag the slider to override.
+                     </div>
+                 )}
+                 <input
+                     type="range" min="1" max="10" step="1" value={props.logRetention}
+                     onChange={e => { props.setLogRetention(e.target.value); setIsAiPopulated(false); }}
+                     className="w-full accent-amber-400 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer mt-1"
+                 />
+             </div>
+           )}
 
            <div className="flex flex-col gap-0 mt-2">
                <div className="flex items-center justify-between bg-zinc-900/60 p-4 rounded-t-2xl border border-white/10 border-b-0">
@@ -309,11 +336,22 @@ export default function DailyLedger(props: DailyLedgerProps) {
            </div>
 
            <div className="flex flex-col gap-2">
+               <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">System Refinements</label>
+               <textarea rows={2} value={props.systemRefinement} onChange={e => props.setSystemRefinement(e.target.value)} placeholder="Experimental changes to your study system..." className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-sm outline-none resize-none text-amber-100" />
+           </div>
+
+           <div className="flex flex-col gap-2">
                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Study Notes</label>
                <textarea rows={2} value={props.logNotes} onChange={e => props.setLogNotes(e.target.value)} placeholder="Additional session notes..." className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-sm outline-none resize-none" />
            </div>
 
-           <button onClick={handleSaveLog} className="w-full py-4 mt-2 rounded-xl bg-white text-black font-bold text-sm tracking-wide shadow-xl hover:bg-zinc-200 transition-all active:scale-[0.99] cursor-pointer">Save Session Log</button>
+           <button 
+               onClick={handleSaveLog} 
+               className="w-full py-4 mt-2 rounded-xl text-white font-bold text-sm tracking-wide shadow-xl transition-all active:scale-[0.99] cursor-pointer"
+               style={{ backgroundColor: 'var(--theme-primary, #10B981)' }}
+           >
+               Save Session Log
+           </button>
         </div>
 
         {/* Scratchpad Overlay Canvas Frame */}

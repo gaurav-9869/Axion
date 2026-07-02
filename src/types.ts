@@ -21,7 +21,10 @@ export interface LogItem {
   activeMins: number;
   distractionMins: number;
   recoveryMins: number;
-  retentionScore?: number; // 1 to 10
+  checkingMins?: number; // For Exercise and Study
+  practiceMins?: number; // For Study
+  errors?: number; // For Exercise and Study
+  retentionScore?: number; // 1 to 10 (Only in Study mode)
   startPage?: number;
   endPage?: number;
   vsaCount?: number;
@@ -31,9 +34,18 @@ export interface LogItem {
   frictionAnalysis?: string; // Explicitly records bottleneck items
   tinyWin?: string; // Optional: one small change / next session intention
   scratchpadImage?: string; // Captures and retains full-screen Base64 canvas drawings
+  systemRefinement?: string; // Experimental changes to study system
+  systemRefinementWorks?: boolean; // Evaluated during Sunday Loop
   isMissed?: boolean;
   synced?: boolean;
+  nextReviewDate?: string; // Calculated SR date
 }
+
+export interface ArchiveState {
+  logs: Record<string, LogItem[]>; // Keyed by date
+  systemRefinements: LogItem[]; // Quick access to logs with system Refinements
+}
+
 
 export interface UserSettings {
   name: string;
@@ -113,6 +125,56 @@ export function getSubjectConfig(sub: string | undefined): SubjectConfig {
   }
 
   return mapping[sub as SubjectKey];
+}
+
+export function calculateNextReviewDate(log: LogItem): string {
+  // Deterministic Math Logic for Spaced Repetition Scheduling
+  // Base interval: 1 day
+  let intervalDays = 1;
+
+  if (log.sessionType === 'Study') {
+    intervalDays = 3; // base 3 days for study
+    
+    // Penalize by checking mins ratio (high checking mins = shorter interval)
+    if (log.checkingMins && log.activeMins) {
+      const ratio = log.checkingMins / Math.max(log.activeMins, 1);
+      if (ratio > 0.3) intervalDays -= 1; 
+    }
+
+    // Reward by low errors in practice
+    if (log.practiceMins && log.errors !== undefined) {
+      const errorRate = log.errors / Math.max(log.practiceMins, 1);
+      if (errorRate < 0.1) intervalDays += 2;
+      else if (errorRate > 0.5) intervalDays -= 1;
+    }
+  } else if (log.sessionType === 'Exercise') {
+    intervalDays = 5;
+    
+    if (log.errors !== undefined) {
+      if (log.errors === 0) intervalDays += 5;
+      else if (log.errors > 5) intervalDays -= 3;
+    }
+    
+    if (log.checkingMins && log.activeMins) {
+      const ratio = log.checkingMins / Math.max(log.activeMins, 1);
+      if (ratio > 0.4) intervalDays -= 2;
+    }
+  } else if (log.sessionType === 'Revise') {
+    intervalDays = 7;
+  }
+
+  // Cognitive load analysis
+  if (log.frictionAnalysis && log.frictionAnalysis.length > 50) {
+    intervalDays = Math.max(1, intervalDays - 2); // Heavy friction = review sooner
+  }
+
+  // Retention score directly affects (if present)
+  if (log.retentionScore !== undefined) {
+    if (log.retentionScore >= 9) intervalDays += 3;
+    else if (log.retentionScore <= 5) intervalDays = Math.max(1, intervalDays - 2);
+  }
+
+  return getLocalDateString(Math.max(1, intervalDays));
 }
 
 export function getLocalDateString(offsetDays = 0): string {
