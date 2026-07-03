@@ -112,7 +112,7 @@ User input message: "${safeUserText}"`;
               serverError = errData.error || serverError;
             } catch(e) {
               if (res.status === 404 || res.status === 405) {
-                 serverError = "Backend API not found. If you are hosting on GitHub Pages, backend APIs are not supported. Please provide VITE_GEMINI_API_KEY in your deployment environment.";
+                 throw new Error("Backend API not found (Status " + res.status + "). If you are hosting statically (like GitHub Pages), you must provide your Gemini API key as a VITE_GEMINI_API_KEY environment variable or secret during the build process.");
               }
             }
             if (serverError.includes("API key not valid") || serverError.includes("API_KEY_INVALID") || serverError.includes("GEMINI_API_KEY is not configured")) {
@@ -179,7 +179,13 @@ User input message: "${safeUserText}"`;
     } catch (err: any) {
       console.warn("Gemini Handshake Failure (handled):", err.message || err);
       const msg = err.message || String(err);
-      setMessages(prev => [...prev, { sender: 'assistant', text: `${msg.includes("API key is missing") ? msg : "API Error: " + msg} Please ensure your Gemini API key is configured correctly in the AI Studio Settings.` }]);
+      let text = `API Error: ${msg}`;
+      if (msg.includes("VITE_GEMINI_API_KEY")) {
+         text = msg; // Just show the clear message directly
+      } else if (msg.includes("API key is missing")) {
+         text = `${msg} Please ensure your Gemini API key is configured correctly in the AI Studio Settings or your environment variables.`;
+      }
+      setMessages(prev => [...prev, { sender: 'assistant', text }]);
     } finally {
       setIsLoading(false);
     }
