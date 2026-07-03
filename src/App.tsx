@@ -107,6 +107,7 @@ export default function App() {
                     if (!alreadyExists) {
                         initialPlan.push({
                             id: nanoid(),
+                 timestamp: Date.now(),
                             subject: log.subject,
                             topic: log.topic,
                             sessionType: 'Revise',
@@ -295,6 +296,7 @@ export default function App() {
             hasPenalties = true;
             finalLogs.push({
                 id: nanoid(),
+                 timestamp: Date.now(),
                 planId: plan.id,
                 subject: plan.subject,
                 topic: plan.topic,
@@ -539,8 +541,8 @@ export default function App() {
                       onClick={async () => {
                           const token = localStorage.getItem('gcal_token');
                           if (token) {
-                              const { uploadBackup } = await import('./lib/driveSync');
-                              const success = await uploadBackup(token);
+                              const { syncArchive } = await import('./lib/driveSync');
+                              const success = await syncArchive(token);
                               if (success) {
                                   alert("Backup to Google Drive successful!");
                               } else {

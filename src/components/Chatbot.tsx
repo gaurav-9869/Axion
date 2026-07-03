@@ -135,6 +135,7 @@ User input message: "${safeUserText}"`;
           if (commandData.command === 'add_plan') {
              const newPlan = {
                  id: nanoid(),
+                 timestamp: Date.now(),
                  subject: commandData.subject || 'bio',
                  topic: commandData.topic || 'Untitled Entry',
                  sessionType: 'Study',
@@ -149,6 +150,7 @@ User input message: "${safeUserText}"`;
           if (commandData.command === 'add_log') {
              const newLog: LogItem = {
                  id: nanoid(),
+                 timestamp: Date.now(),
                  subject: commandData.subject || 'bio',
                  topic: commandData.topic || 'Untitled Session',
                  sessionType: 'Study',

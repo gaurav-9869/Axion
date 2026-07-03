@@ -33,7 +33,7 @@ export default function AccountView({ userSettings, setUserSettings }: AccountVi
           try {
               const client = google.accounts.oauth2.initTokenClient({
                   client_id: clientId,
-                  scope: 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.appdata',
+                  scope: 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.file',
                   prompt: '',
                   callback: (response: any) => {
                       if (!response.error && response.access_token) {
@@ -93,7 +93,7 @@ export default function AccountView({ userSettings, setUserSettings }: AccountVi
          }
          const client = google.accounts.oauth2.initTokenClient({
              client_id: clientId,
-             scope: 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.appdata',
+             scope: 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.file',
              prompt: 'consent',
              callback: (response: any) => {
                  if (response.error) {

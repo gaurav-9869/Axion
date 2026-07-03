@@ -109,6 +109,7 @@ export default function DailyLedger(props: DailyLedgerProps) {
 
       const newLog: LogItem = {
           id: nanoid(),
+          timestamp: Date.now(),
           planId: props.logActivePlanId || undefined,
           subject: props.logSubject,
           topic: props.logTopic.trim(),

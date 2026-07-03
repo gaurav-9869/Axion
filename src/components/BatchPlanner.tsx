@@ -22,6 +22,7 @@ export default function BatchPlanner({ morningPlan, setMorningPlan, logActivePla
 
     const newPlan: PlanItem = {
       id: nanoid(),
+                 timestamp: Date.now(),
       subject: taskSubject,
       topic: taskTopic.trim(),
       sessionType: taskType,

@@ -9,6 +9,7 @@ export interface PlanItem {
   targetUnits?: number; // pages or questions
   targetMins: number;
   status: 'pending' | 'completed';
+  timestamp?: number;
 }
 
 export interface LogItem {
@@ -39,6 +40,7 @@ export interface LogItem {
   isMissed?: boolean;
   synced?: boolean;
   nextReviewDate?: string; // Calculated SR date
+  timestamp?: number;
 }
 
 export interface ArchiveState {
