@@ -105,7 +105,11 @@ User input message: "${safeUserText}"`;
             try {
               const errData = await res.json();
               serverError = errData.error || serverError;
-            } catch(e) {}
+            } catch(e) {
+              if (res.status === 404) {
+                 serverError = "Backend API not found. If you are hosting on GitHub Pages, backend APIs are not supported. Please provide VITE_GEMINI_API_KEY in your deployment environment.";
+              }
+            }
             if (serverError.includes("API key not valid") || serverError.includes("API_KEY_INVALID") || serverError.includes("GEMINI_API_KEY is not configured")) {
               throw new Error("Your Gemini API key is missing or invalid.");
             }
