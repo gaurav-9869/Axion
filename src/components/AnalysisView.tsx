@@ -158,10 +158,10 @@ export default function AnalysisView({ loggedSessions, userSettings }: AnalysisV
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
 
         {/* CHART A: Pie */}
-        <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-[32px] p-6 shadow-2xl flex flex-col gap-6">
+        <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-[32px] p-6 shadow-2xl flex flex-col gap-6 overflow-hidden">
           <div>
             <h4 className="text-base font-bold text-white tracking-tight">Time Share Distribution</h4>
-            <p className="text-xs text-zinc-400 mt-0.5">Stream category breakdown ratios</p>
+            <p className="text-xs text-zinc-400 mt-0.5 truncate">Stream category breakdown ratios</p>
           </div>
           <div className="flex flex-col sm:flex-row items-center justify-around gap-6 py-4">
             <div className="relative w-44 h-44 shrink-0">
@@ -207,10 +207,10 @@ export default function AnalysisView({ loggedSessions, userSettings }: AnalysisV
         </div>
 
         {/* CHART B: Horizontal Bars */}
-        <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-[32px] p-6 shadow-2xl flex flex-col gap-6">
+        <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-[32px] p-6 shadow-2xl flex flex-col gap-6 overflow-hidden">
           <div>
             <h4 className="text-base font-bold text-white tracking-tight">Focus Symmetrical Balance</h4>
-            <p className="text-xs text-zinc-400 mt-0.5">Tracked hours relative progression marks</p>
+            <p className="text-xs text-zinc-400 mt-0.5 truncate">Tracked hours relative progression marks</p>
           </div>
           <div className="flex flex-col gap-5 justify-center flex-1 py-2">
             {pieSlices.map(slice => {
@@ -237,15 +237,15 @@ export default function AnalysisView({ loggedSessions, userSettings }: AnalysisV
       </div>
 
       {/* ── CHART C: Pages Per Day (replaces Venn diagram) ─────────────── */}
-      <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-[32px] p-6 shadow-2xl flex flex-col gap-6">
+      <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-[32px] p-6 shadow-2xl flex flex-col gap-6 overflow-hidden">
         <div>
           <h4 className="text-base font-bold text-white tracking-tight">Daily Reading Pace</h4>
-          <p className="text-xs text-zinc-400 mt-0.5">Pages completed per day — last 14 days, colored by subject</p>
+          <p className="text-xs text-zinc-400 mt-0.5 truncate">Pages completed per day — last 14 days</p>
         </div>
 
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3 overflow-x-auto pb-2 custom-scrollbar">
           {/* Bar chart */}
-          <div className="flex items-end gap-1.5 h-40 w-full">
+          <div className="flex items-end gap-1.5 h-40 min-w-[300px]">
             {last14Days.map(d => {
               const dayData = pagesPerDay[d] || {};
               const totalDay = Object.values(dayData).reduce((a, b) => a + b, 0);
@@ -300,10 +300,10 @@ export default function AnalysisView({ loggedSessions, userSettings }: AnalysisV
       </div>
 
       {/* ── SYLLABUS PACE PREDICTOR ──────────────────────────────────────── */}
-      <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-[32px] p-6 shadow-2xl flex flex-col gap-6">
+      <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-[32px] p-6 shadow-2xl flex flex-col gap-6 overflow-hidden">
         <div>
           <h4 className="text-base font-bold text-white tracking-tight">Syllabus Pace Predictor</h4>
-          <p className="text-xs text-zinc-400 mt-0.5">Based on your last 7 days average — set total pages per subject in Account settings</p>
+          <p className="text-xs text-zinc-400 mt-0.5 truncate">Based on your last 7 days average — set total pages per subject in Account settings</p>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -358,10 +358,10 @@ export default function AnalysisView({ loggedSessions, userSettings }: AnalysisV
       </div>
 
       {/* ── NESTED UI GROUPING (Topic Logs) ───────────────────────────────── */}
-      <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-[32px] p-6 shadow-2xl flex flex-col gap-6">
+      <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-[32px] p-6 shadow-2xl flex flex-col gap-6 overflow-hidden">
         <div>
           <h4 className="text-base font-bold text-white tracking-tight">Recent Topics Review</h4>
-          <p className="text-xs text-zinc-400 mt-0.5">Your past 7 days grouped by topic, nested with study and revision loops.</p>
+          <p className="text-xs text-zinc-400 mt-0.5 truncate">Your past 7 days grouped by topic, nested with study and revision loops.</p>
         </div>
         <div className="flex flex-col gap-3">
             {Object.keys(groupedTopics).length === 0 ? (
@@ -373,11 +373,11 @@ export default function AnalysisView({ loggedSessions, userSettings }: AnalysisV
                     return (
                        <div key={topic} className="bg-black/20 border border-white/5 rounded-2xl overflow-hidden flex flex-col">
                            <div className="p-4 flex items-center justify-between bg-white/5 border-b border-white/5">
-                               <div className="flex items-center gap-3">
-                                   <span className="w-2 h-2 rounded-full" style={{ backgroundColor: conf.color }}></span>
-                                   <span className="font-bold text-sm text-zinc-200">{topic}</span>
+                               <div className="flex items-center gap-3 flex-1 min-w-0 pr-4">
+                                   <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: conf.color }}></span>
+                                   <span className="font-bold text-sm text-zinc-200 truncate">{topic}</span>
                                </div>
-                               <span className="text-xs font-mono text-zinc-500">{logs.length} session{logs.length > 1 ? 's' : ''}</span>
+                               <span className="text-xs font-mono text-zinc-500 shrink-0">{logs.length} session{logs.length > 1 ? 's' : ''}</span>
                            </div>
                            <div className="flex flex-col">
                                {logs.map((log, idx) => (

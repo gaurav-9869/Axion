@@ -408,7 +408,7 @@ export default function App() {
         userSettings={userSettings}
       />
 
-      <div className={`flex-1 flex flex-col transition-all duration-300 relative z-10 md:ml-64 ${isSidebarOpen ? 'ml-64' : 'ml-0'}`}>
+      <div className={`flex-1 flex flex-col transition-all duration-300 relative z-10 md:ml-64`}>
         
         {/* Top Header Bar */}
         <header 
