@@ -4,7 +4,7 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 
 const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
+  apiKey: (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || "dummy").replace(/^["']|["']$/g, "").trim(),
   httpOptions: {
     headers: {
       'User-Agent': 'aistudio-build',
@@ -20,18 +20,33 @@ async function startServer() {
 
   app.post("/api/gemini/generate", async (req, res) => {
     try {
+      const rawKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || "";
+      const apiKey = rawKey.replace(/^["']|["']$/g, "").trim();
+      if (!apiKey) {
+          return res.status(500).json({ error: "GEMINI_API_KEY is not configured on the server." });
+      }
+
+      const localAi = new GoogleGenAI({
+        apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          }
+        }
+      });
+
       const { prompt } = req.body;
       if (!prompt) {
           return res.status(400).json({ error: "Missing prompt" });
       }
       
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+      const response = await localAi.models.generateContent({
+        model: "gemini-2.5-flash",
         contents: prompt,
       });
       res.json({ text: response.text });
     } catch (error: any) {
-      console.error(error);
+      console.warn("Gemini Handshake Failure (handled):", error.message);
       res.status(500).json({ error: error.message });
     }
   });

@@ -101,7 +101,12 @@ User input message: "${safeUserText}"`;
           });
 
           if (!res.ok) {
-            throw new Error(`API Connection Failed: ${res.status}`);
+            let serverError = "Unknown server error";
+            try {
+              const errData = await res.json();
+              serverError = errData.error || serverError;
+            } catch(e) {}
+            throw new Error(`Status ${res.status}: ${serverError}`);
           }
 
           const data = await res.json();
@@ -159,9 +164,10 @@ User input message: "${safeUserText}"`;
       }
 
       setMessages(prev => [...prev, { sender: 'assistant', text: assistantText }]);
-    } catch (err) {
-      console.error("Gemini Handshake Failure:", err);
-      setMessages(prev => [...prev, { sender: 'assistant', text: "Connection anomaly encountered. Please check your API key or rephrase your input sentence." }]);
+    } catch (err: any) {
+      console.warn("Gemini Handshake Failure (handled):", err.message || err);
+      const msg = err.message || String(err);
+      setMessages(prev => [...prev, { sender: 'assistant', text: `API Error: ${msg}. Please ensure your Gemini API key is configured correctly in the AI Studio Settings.` }]);
     } finally {
       setIsLoading(false);
     }
@@ -195,7 +201,7 @@ User input message: "${safeUserText}"`;
           {messages.map((msg, idx) => (
             <div 
               key={idx} 
-              className={`max-w-[82%] p-3 rounded-2xl text-sm leading-relaxed ${
+              className={`max-w-[82%] p-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words ${
                 msg.sender === 'user' 
                   ? 'text-white ml-auto rounded-tr-none shadow-md' 
                   : 'bg-black/20 text-zinc-200 mr-auto rounded-tl-none border border-white/5'

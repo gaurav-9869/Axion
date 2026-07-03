@@ -152,19 +152,19 @@ export default function AnalysisView({ loggedSessions, userSettings }: AnalysisV
 
   // ── Render ───────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col gap-8 w-full text-zinc-100 animate-fade-in">
+    <div className="flex flex-col gap-6 w-full text-zinc-100 animate-fade-in">
 
       {/* ── GRID: Chart A + Chart B (unchanged) ───────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
         {/* CHART A: Pie */}
-        <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-[32px] p-6 shadow-2xl flex flex-col gap-6 overflow-hidden">
+        <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-[28px] p-5 shadow-xl flex flex-col gap-6 overflow-hidden min-w-0">
           <div>
             <h4 className="text-base font-bold text-white tracking-tight">Time Share Distribution</h4>
             <p className="text-xs text-zinc-400 mt-0.5 truncate">Stream category breakdown ratios</p>
           </div>
-          <div className="flex flex-col sm:flex-row items-center justify-around gap-6 py-4">
-            <div className="relative w-44 h-44 shrink-0">
+          <div className="flex flex-col md:flex-row items-center justify-around gap-6 py-4">
+            <div className="relative w-32 h-32 md:w-40 md:h-40 shrink-0 mx-auto">
               {totalMinutes > 0 ? (
                 <svg className="w-full h-full transform -rotate-90" viewBox="0 0 32 32">
                   {pieSlices.map((slice, idx) => {
@@ -194,7 +194,7 @@ export default function AnalysisView({ loggedSessions, userSettings }: AnalysisV
                 <span className="text-base font-black text-white mt-0.5">{totalMinutes}m</span>
               </div>
             </div>
-            <div className="flex flex-col gap-3 w-full sm:w-auto">
+            <div className="flex flex-col gap-3 w-full md:w-auto">
               {pieSlices.map(slice => (
                 <div key={slice.key} className="flex items-center gap-3 text-xs bg-black/20 px-3 py-2 rounded-xl border border-white/5">
                   <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: slice.config.color }} />
@@ -207,7 +207,7 @@ export default function AnalysisView({ loggedSessions, userSettings }: AnalysisV
         </div>
 
         {/* CHART B: Horizontal Bars */}
-        <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-[32px] p-6 shadow-2xl flex flex-col gap-6 overflow-hidden">
+        <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-[28px] p-5 shadow-xl flex flex-col gap-6 overflow-hidden min-w-0">
           <div>
             <h4 className="text-base font-bold text-white tracking-tight">Focus Symmetrical Balance</h4>
             <p className="text-xs text-zinc-400 mt-0.5 truncate">Tracked hours relative progression marks</p>
@@ -222,7 +222,7 @@ export default function AnalysisView({ loggedSessions, userSettings }: AnalysisV
                     <span className="font-bold text-zinc-300 capitalize">{slice.config.name}</span>
                     <span className="font-mono text-zinc-500">{slice.mins} mins spend</span>
                   </div>
-                  <div className="w-full h-3.5 bg-black/40 rounded-full border border-white/5 overflow-hidden p-0.5">
+                  <div className="w-full h-3.5 bg-black/40 rounded-full border border-white/5 overflow-hidden min-w-0 p-0.5">
                     <div
                       className="h-full rounded-full transition-all duration-1000 ease-out"
                       style={{ width: `${progressWidth || 3}%`, backgroundColor: slice.config.color }}
@@ -237,7 +237,7 @@ export default function AnalysisView({ loggedSessions, userSettings }: AnalysisV
       </div>
 
       {/* ── CHART C: Pages Per Day (replaces Venn diagram) ─────────────── */}
-      <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-[32px] p-6 shadow-2xl flex flex-col gap-6 overflow-hidden">
+      <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-[28px] p-5 shadow-xl flex flex-col gap-6 overflow-hidden min-w-0">
         <div>
           <h4 className="text-base font-bold text-white tracking-tight">Daily Reading Pace</h4>
           <p className="text-xs text-zinc-400 mt-0.5 truncate">Pages completed per day — last 14 days</p>
@@ -245,7 +245,7 @@ export default function AnalysisView({ loggedSessions, userSettings }: AnalysisV
 
         <div className="flex flex-col gap-3 overflow-x-auto pb-2 custom-scrollbar">
           {/* Bar chart */}
-          <div className="flex items-end gap-1.5 h-40 min-w-[300px]">
+          <div className="flex items-end gap-1.5 h-40 min-w-[240px]">
             {last14Days.map(d => {
               const dayData = pagesPerDay[d] || {};
               const totalDay = Object.values(dayData).reduce((a, b) => a + b, 0);
@@ -256,7 +256,7 @@ export default function AnalysisView({ loggedSessions, userSettings }: AnalysisV
               return (
                 <div key={d} className="flex flex-col items-center gap-1 flex-1 min-w-0">
                   <span className="text-[9px] text-zinc-500 font-mono">{totalDay > 0 ? totalDay : ''}</span>
-                  <div className="w-full flex flex-col-reverse rounded-sm overflow-hidden" style={{ height: '120px' }}>
+                  <div className="w-full flex flex-col-reverse rounded-sm overflow-hidden min-w-0" style={{ height: '120px' }}>
                     {totalDay === 0 ? (
                       <div className="w-full h-1 bg-white/5 rounded-sm mt-auto" />
                     ) : (
@@ -300,15 +300,15 @@ export default function AnalysisView({ loggedSessions, userSettings }: AnalysisV
       </div>
 
       {/* ── SYLLABUS PACE PREDICTOR ──────────────────────────────────────── */}
-      <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-[32px] p-6 shadow-2xl flex flex-col gap-6 overflow-hidden">
+      <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-[28px] p-5 shadow-xl flex flex-col gap-6 overflow-hidden min-w-0">
         <div>
           <h4 className="text-base font-bold text-white tracking-tight">Syllabus Pace Predictor</h4>
           <p className="text-xs text-zinc-400 mt-0.5 truncate">Based on your last 7 days average — set total pages per subject in Account settings</p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {paceCards.map(card => (
-            <div key={card.sub} className="bg-black/20 border border-white/5 rounded-2xl p-5 flex flex-col gap-3 relative overflow-hidden">
+            <div key={card.sub} className="bg-black/20 border border-white/5 rounded-2xl p-5 flex flex-col gap-3 relative overflow-hidden min-w-0">
               <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: card.conf.color }} />
               <div className="pl-2">
                 <span className="text-xs font-bold uppercase tracking-widest" style={{ color: card.conf.color }}>{card.conf.name}</span>
@@ -324,7 +324,7 @@ export default function AnalysisView({ loggedSessions, userSettings }: AnalysisV
                       <span className="text-zinc-400">Progress</span>
                       <span className="font-mono font-bold text-white">{card.coveredAllTime} / {card.totalPages} pg</span>
                     </div>
-                    <div className="w-full h-2 bg-black/40 rounded-full border border-white/5 overflow-hidden">
+                    <div className="w-full h-2 bg-black/40 rounded-full border border-white/5 overflow-hidden min-w-0">
                       <div
                         className="h-full rounded-full transition-all duration-700"
                         style={{ width: `${card.progressPct || 0}%`, backgroundColor: card.conf.color }}
@@ -358,7 +358,7 @@ export default function AnalysisView({ loggedSessions, userSettings }: AnalysisV
       </div>
 
       {/* ── NESTED UI GROUPING (Topic Logs) ───────────────────────────────── */}
-      <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-[32px] p-6 shadow-2xl flex flex-col gap-6 overflow-hidden">
+      <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-[28px] p-5 shadow-xl flex flex-col gap-6 overflow-hidden min-w-0">
         <div>
           <h4 className="text-base font-bold text-white tracking-tight">Recent Topics Review</h4>
           <p className="text-xs text-zinc-400 mt-0.5 truncate">Your past 7 days grouped by topic, nested with study and revision loops.</p>
@@ -371,7 +371,7 @@ export default function AnalysisView({ loggedSessions, userSettings }: AnalysisV
                     const firstLog = logs[0];
                     const conf = getSubjectConfig(firstLog.subject);
                     return (
-                       <div key={topic} className="bg-black/20 border border-white/5 rounded-2xl overflow-hidden flex flex-col">
+                       <div key={topic} className="bg-black/20 border border-white/5 rounded-2xl overflow-hidden min-w-0 flex flex-col">
                            <div className="p-4 flex items-center justify-between bg-white/5 border-b border-white/5">
                                <div className="flex items-center gap-3 flex-1 min-w-0 pr-4">
                                    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: conf.color }}></span>
@@ -404,38 +404,6 @@ export default function AnalysisView({ loggedSessions, userSettings }: AnalysisV
                 })
             )}
         </div>
-      </div>
-
-      {/* ── TIME ALLOCATION DISTRIBUTION ─────────────────────────────────── */}
-      <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-[32px] p-6 shadow-2xl flex flex-col gap-6">
-          <div className="flex justify-between items-center">
-              <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-400">Time Allocation Distribution</h3>
-              <div className="text-xs font-bold bg-black/40 border border-white/10 px-3 py-1.5 rounded-lg text-emerald-400">
-                  Total: {totalMinutes} mins
-              </div>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {Object.entries(subjectMinutes).map(([key, val]) => {
-                  const config = getSubjectConfig(key);
-                  const maxVal = Math.max(...Object.values(subjectMinutes), 1);
-                  const barWidth = Math.min(100, Math.round((val / maxVal) * 100));
-
-                  return (
-                      <div key={key} className="flex flex-col gap-1.5 bg-black/20 p-4 rounded-xl border border-white/5">
-                          <div className="flex justify-between text-xs font-semibold px-1">
-                              <span className="text-zinc-300 capitalize">{config.name}</span>
-                              <span className="text-zinc-500 font-mono">{val} mins</span>
-                          </div>
-                          <div className="w-full h-3 bg-black/40 rounded-full overflow-hidden border border-white/5">
-                              <div 
-                                  className="h-full rounded-full transition-all duration-500" 
-                                  style={{ width: `${barWidth || 3}%`, backgroundColor: config.color }} 
-                              />
-                          </div>
-                      </div>
-                  );
-              })}
-          </div>
       </div>
 
     </div>

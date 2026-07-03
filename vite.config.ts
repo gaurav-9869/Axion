@@ -5,9 +5,15 @@ import { defineConfig, loadEnv } from 'vite';
 
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
+  
+  let basePath = './';
+  if (process.env.GITHUB_REPOSITORY) {
+      basePath = `/${process.env.GITHUB_REPOSITORY.split('/')[1]}/`;
+  }
+  
   return {
     // Relocking base to your active case-sensitive repository path to prevent asset loading failure
-    base: './',
+    base: basePath,
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
@@ -16,6 +22,8 @@ export default defineConfig(({mode}) => {
     },
     server: {
       hmr: process.env.DISABLE_HMR !== 'true',
+      allowedHosts: true,
+      host: '0.0.0.0',
     },
   };
 });
