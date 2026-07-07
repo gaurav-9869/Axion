@@ -6,8 +6,11 @@ import { defineConfig, loadEnv } from 'vite';
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
   
+  const githubRepo = process.env.GITHUB_REPOSITORY;
+  const basePath = githubRepo ? `/${githubRepo.split('/')[1]}/` : './';
+
   return {
-    base: './',
+    base: basePath,
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
