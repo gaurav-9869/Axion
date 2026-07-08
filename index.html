@@ -17,20 +17,12 @@
   <body class="bg-background text-on-surface font-body min-h-screen flex flex-col pb-24 md:pb-0">
     <div id="root" class="flex flex-col flex-1 h-full w-full relative"></div>
     <script>
-      // Catch runtime JS errors
       window.addEventListener('error', function(e) {
-        if (e.message) {
-            document.body.innerHTML += '<div style="color:red; background:white; position:fixed; z-index:9999; top:0; left:0; width:100%; padding:20px; font-family:sans-serif; border-bottom:2px solid red;"><b>APP RUNTIME ERROR:</b> ' + e.message + '<br><br><small>If you are on GitHub Pages, make sure API calls are not crashing the app.</small></div>';
-        }
+        document.body.innerHTML += '<div style="color:red; background:white; position:fixed; z-index:9999; top:0; left:0; width:100%; padding:20px;">ERROR: ' + e.message + '</div>';
+        fetch('/api/log-error', { method: 'POST', body: e.message });
       });
-      // Catch resource loading errors (like 404 for scripts/css)
-      window.addEventListener('error', function(e) {
-        if (e.target && (e.target.tagName === 'SCRIPT' || e.target.tagName === 'LINK')) {
-            document.body.innerHTML += '<div style="color:red; background:white; position:fixed; z-index:9999; top:0; left:0; width:100%; padding:20px; font-family:sans-serif; border-bottom:2px solid red;"><b>RESOURCE LOAD ERROR:</b> Failed to load ' + e.target.src + (e.target.href || '') + '. <br><br>This usually means the base URL is incorrect for GitHub Pages. The repository name must be included in the URL paths.</div>';
-        }
-      }, true); // Use capture phase for resource errors
       window.addEventListener('unhandledrejection', function(e) {
-        console.error("Unhandled promise rejection:", e.reason);
+        document.body.innerHTML += '<div style="color:red; background:white; position:fixed; z-index:9999; top:0; left:0; width:100%; padding:20px;">PROMISE ERROR: ' + e.reason + '</div>';
       });
     </script>
     <script type="module" src="./src/main.tsx"></script>
