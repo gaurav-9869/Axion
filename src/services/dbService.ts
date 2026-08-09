@@ -184,6 +184,49 @@ export async function saveDailyPlan(date: string, plan: PlanItem[]): Promise<voi
   }
 }
 
+export interface WeeklyReflection {
+  id: string;
+  whatWentWell: string;
+  conceptualGaps: string;
+  timestamp: number;
+}
+
+export async function getWeeklyReflections(): Promise<WeeklyReflection[]> {
+  if (auth.currentUser) {
+    const uid = auth.currentUser.uid;
+    try {
+      const q = query(collection(db, 'users', uid, 'refinements'), orderBy('timestamp', 'desc'), limitQuery(20));
+      const snap = await getDocs(q);
+
+      const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+      const now = Date.now();
+      const validReflections: WeeklyReflection[] = [];
+      const batch = writeBatch(db);
+      let needsCleanup = false;
+
+      snap.docs.forEach(docSnap => {
+        const data = docSnap.data() as WeeklyReflection;
+        if (data.timestamp && now - data.timestamp > SEVEN_DAYS_MS) {
+           batch.delete(docSnap.ref);
+           needsCleanup = true;
+        } else {
+           validReflections.push(data);
+        }
+      });
+
+      if (needsCleanup) {
+         await batch.commit();
+         console.log("Cleaned up weekly reflections older than 7 days.");
+      }
+
+      return validReflections;
+    } catch (error: any) {
+      console.warn("Firestore getWeeklyReflections failed:", error);
+    }
+  }
+  return [];
+}
+
 export async function getDailyPlan(date: string): Promise<PlanItem[]> {
   const planMap = new Map<string, PlanItem>();
 

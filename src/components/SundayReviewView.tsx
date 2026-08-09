@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { LogItem, getSubjectConfig } from '../types';
-import { saveStudyLog, saveWeeklyReflection, savePreparationChecklist, getPreparationChecklist, ChecklistItem } from '../services/dbService';
+import { saveStudyLog, saveWeeklyReflection, savePreparationChecklist, getPreparationChecklist, ChecklistItem, getWeeklyReflections, WeeklyReflection } from '../services/dbService';
 import { nanoid } from 'nanoid';
 import { audioManager } from '../lib/audio';
 
@@ -23,15 +23,16 @@ export default function SundayReviewView({ loggedSessions, setLoggedSessions }: 
   const [whatWentWell, setWhatWentWell] = useState('');
   const [conceptualGaps, setConceptualGaps] = useState('');
   const [isSavingReview, setIsSavingReview] = useState(false);
+  const [pastReflections, setPastReflections] = useState<WeeklyReflection[]>([]);
 
   // Active Checklist States
   const [checklist, setChecklist] = useState<ChecklistItem[]>(DEFAULT_CHECKLIST);
   const [newTodoText, setNewTodoText] = useState('');
   const [isChecklistLoaded, setIsChecklistLoaded] = useState(false);
 
-  // Load checklist from Firestore on mount
+  // Load checklist and weekly reviews from Firestore on mount
   useEffect(() => {
-    async function fetchChecklist() {
+    async function fetchData() {
       try {
         const dbChecklist = await getPreparationChecklist();
         if (dbChecklist && dbChecklist.length > 0) {
@@ -42,8 +43,15 @@ export default function SundayReviewView({ loggedSessions, setLoggedSessions }: 
       } finally {
         setIsChecklistLoaded(true);
       }
+
+      try {
+          const reflections = await getWeeklyReflections();
+          setPastReflections(reflections);
+      } catch (err) {
+          console.error("Failed to load reflections:", err);
+      }
     }
-    fetchChecklist();
+    fetchData();
   }, []);
 
   // Save checklist whenever it changes, but only after it has been loaded
@@ -135,11 +143,15 @@ export default function SundayReviewView({ loggedSessions, setLoggedSessions }: 
         conceptualGaps: conceptualGaps.trim()
       });
 
-      // 2. Clear reflections
+      // 2. Refresh past reflections
+      const updatedReflections = await getWeeklyReflections();
+      setPastReflections(updatedReflections);
+
+      // 3. Clear reflections
       setWhatWentWell('');
       setConceptualGaps('');
       
-      // 3. Reset preparation checklist state & save to Firestore
+      // 4. Reset preparation checklist state & save to Firestore
       const resetChecklist = DEFAULT_CHECKLIST.map(item => ({ ...item, id: nanoid() }));
       setChecklist(resetChecklist);
       await savePreparationChecklist(resetChecklist);
@@ -199,6 +211,33 @@ export default function SundayReviewView({ loggedSessions, setLoggedSessions }: 
                         {isSavingReview ? 'Archiving Summary...' : 'Save Review & Archive Summary'}
                     </button>
                 </div>
+
+                {/* Past Weekly Reflections */}
+                {pastReflections.length > 0 && (
+                    <div className="mt-4 border-t border-white/5 pt-6 flex flex-col gap-4">
+                         <div className="flex items-center gap-2">
+                             <span className="material-symbols-outlined text-[20px]" style={{ color: "var(--theme-primary, #10B981)" }}>history</span>
+                             <h4 className="text-sm font-bold text-white uppercase tracking-wider">Recent Weekly Reviews</h4>
+                         </div>
+                         <div className="grid grid-cols-1 gap-3 max-h-[200px] overflow-y-auto pr-2">
+                             {pastReflections.map(ref => (
+                                 <div key={ref.id} className="ios-glass-card-nested p-4 flex flex-col gap-2 relative">
+                                     <span className="absolute top-3 right-3 text-[10px] text-zinc-500 font-bold tracking-wider">
+                                         {new Date(ref.timestamp).toLocaleDateString()}
+                                     </span>
+                                     <div className="flex flex-col">
+                                         <span className="text-[10px] uppercase text-emerald-400 font-bold mb-0.5">What Worked</span>
+                                         <p className="text-xs text-zinc-200 leading-relaxed">{ref.whatWentWell}</p>
+                                     </div>
+                                     <div className="flex flex-col mt-2 pt-2 border-t border-white/5">
+                                         <span className="text-[10px] uppercase text-amber-400 font-bold mb-0.5">Conceptual Gaps</span>
+                                         <p className="text-xs text-zinc-300 leading-relaxed italic">{ref.conceptualGaps}</p>
+                                     </div>
+                                 </div>
+                             ))}
+                         </div>
+                    </div>
+                )}
 
                 {/* Integrated System Refinement List */}
                 <div className="mt-4 border-t border-white/5 pt-6 flex flex-col gap-4">

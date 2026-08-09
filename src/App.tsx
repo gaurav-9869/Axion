@@ -493,12 +493,16 @@ export default function App() {
     }
 
     // Spaced Repetition (SR) 3-Interval Escalation Engine
-    // For each studied topic, schedule revision at +1, +7, +28 days
+    // Schedule revision: tomorrow (+1), next Sunday, and +28 days
     if (studyLogs.length > 0) {
+      const today = new Date();
+      // Calculate days until next Sunday (0 is Sunday, 1 is Monday, etc.)
+      const daysUntilNextSunday = today.getDay() === 0 ? 7 : 7 - today.getDay();
+
       const intervals = [
-        { offset: 1, label: 'Day +1' },
-        { offset: 7, label: 'Day +7' },
-        { offset: 28, label: 'Day +28' }
+        { offset: 1, label: 'Day +1 (Tomorrow)' },
+        { offset: daysUntilNextSunday, label: 'Next Sunday' },
+        { offset: 28, label: 'Day +28 (Monthly)' }
       ];
 
       for (const interval of intervals) {

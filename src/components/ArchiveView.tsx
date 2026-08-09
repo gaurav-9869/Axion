@@ -248,7 +248,7 @@ export default function ArchiveView() {
             <select 
               value={selectedSubject} 
               onChange={(e) => { setSelectedSubject(e.target.value); sound.playClick(); }} 
-              className="bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs font-semibold cursor-pointer text-white outline-none"
+              className="ios-glass-card-nested px-3 py-2 text-xs font-semibold cursor-pointer text-white outline-none"
             >
               <option value="all">All Subjects</option>
               <option value="bio">Biology</option>
@@ -260,7 +260,7 @@ export default function ArchiveView() {
             <select 
               value={selectedMonth} 
               onChange={(e) => { setSelectedMonth(e.target.value); sound.playClick(); }} 
-              className="bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs font-semibold cursor-pointer text-white outline-none"
+              className="ios-glass-card-nested px-3 py-2 text-xs font-semibold cursor-pointer text-white outline-none"
             >
               <option value="all">All Months</option>
               {uniqueMonths.map(m => (
@@ -271,7 +271,7 @@ export default function ArchiveView() {
             <select 
               value={sortBy} 
               onChange={(e) => { setSortBy(e.target.value); sound.playClick(); }} 
-              className="bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs font-semibold cursor-pointer text-white outline-none col-span-2 sm:col-span-1"
+              className="ios-glass-card-nested px-3 py-2 text-xs font-semibold cursor-pointer text-white outline-none col-span-2 sm:col-span-1"
             >
               <option value="newest">Newest First</option>
               <option value="oldest">Oldest First</option>
@@ -411,6 +411,15 @@ export default function ArchiveView() {
                           />
                         </div>
 
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] uppercase text-zinc-400 font-bold">System Refinement</label>
+                          <textarea
+                            value={editFormData.systemRefinement || ''}
+                            onChange={e => setEditFormData({ ...editFormData, systemRefinement: e.target.value })}
+                            className="ios-glass-input p-1.5 text-xs text-white outline-none min-h-[50px]"
+                          />
+                        </div>
+
                         <div className="flex gap-2 justify-end mt-1">
                           <button 
                             onClick={() => setEditingLogId(null)} 
@@ -449,8 +458,36 @@ export default function ArchiveView() {
                         )}
 
                         {log.systemRefinement && (
-                          <div className="p-2.5 bg-amber-500/10 rounded-xl border border-amber-500/20 text-xs text-amber-200 italic">
-                            <strong className="text-amber-400 block mb-0.5">Refinement:</strong> "{log.systemRefinement}"
+                          <div className="p-2.5 bg-amber-500/10 rounded-xl border border-amber-500/20 text-xs text-amber-200 italic flex justify-between items-start gap-4">
+                            <div>
+                                <strong className="text-amber-400 block mb-0.5">Refinement:</strong> "{log.systemRefinement}"
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                    onClick={async () => {
+                                        const updated = { ...log, systemRefinementWorks: true };
+                                        setLoadedLogs(prev => prev.map(l => l.id === log.id ? updated : l));
+                                        sound.playClick();
+                                        await saveStudyLog(updated);
+                                    }}
+                                    className={`w-6 h-6 rounded-md flex items-center justify-center transition-all border ${log.systemRefinementWorks === true ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' : 'bg-black/30 text-zinc-500 border-white/10 hover:border-emerald-500/30 hover:text-emerald-400'}`}
+                                    title="Worked"
+                                >
+                                    <span className="material-symbols-outlined text-[14px]">check</span>
+                                </button>
+                                <button
+                                    onClick={async () => {
+                                        const updated = { ...log, systemRefinementWorks: false };
+                                        setLoadedLogs(prev => prev.map(l => l.id === log.id ? updated : l));
+                                        sound.playClick();
+                                        await saveStudyLog(updated);
+                                    }}
+                                    className={`w-6 h-6 rounded-md flex items-center justify-center transition-all border ${log.systemRefinementWorks === false ? 'bg-rose-500/20 text-rose-400 border-rose-500/40' : 'bg-black/30 text-zinc-500 border-white/10 hover:border-rose-500/30 hover:text-rose-400'}`}
+                                    title="Didn't Work"
+                                >
+                                    <span className="material-symbols-outlined text-[14px]">close</span>
+                                </button>
+                            </div>
                           </div>
                         )}
 

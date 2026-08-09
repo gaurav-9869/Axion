@@ -218,7 +218,7 @@ export default function DailyLedger(props: DailyLedgerProps) {
   };
 
   return (
-    <section className="ios-glass-panel p-6 flex flex-col gap-6 w-full text-zinc-100">
+    <section className="ios-glass-panel p-6 flex flex-col gap-6 w-full text-zinc-100 animate-ios-fade-in">
         <div className="border-b border-white/5 pb-3">
             <h3 className="text-base font-bold tracking-tight text-white uppercase">DAILY LOGGER</h3>
         </div>

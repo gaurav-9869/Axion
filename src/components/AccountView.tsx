@@ -33,7 +33,7 @@ export default function AccountView({ userSettings, setUserSettings }: AccountVi
      const token = localStorage.getItem('gcal_token');
      const expires = localStorage.getItem('gcal_token_expires');
 
-     if (token && expires && Number(expires) > Date.now()) {
+     if (token) {
          setHasToken(true);
          const profile = localStorage.getItem('gcal_profile');
          if (profile) {
