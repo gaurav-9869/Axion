@@ -444,8 +444,8 @@ User input message: "${safeUserText}"`;
 
       {/* Slide-out Glass Chat Drawer Panel */}
       <div 
-        className={`fixed bottom-24 right-6 w-[calc(100vw-2rem)] sm:w-[420px] h-[540px] ios-glass-panel flex flex-col overflow-hidden z-50 rounded-[28px] shadow-2xl transition-all duration-300 border border-white/15 ${
-          isOpen ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto' : 'opacity-0 translate-y-4 scale-95 pointer-events-none'
+        className={`fixed bottom-24 right-6 w-[calc(100vw-2rem)] sm:w-[420px] h-[540px] ios-glass-panel flex flex-col overflow-hidden z-50 rounded-[28px] shadow-2xl transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] transform border border-white/15 ${
+          isOpen ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto' : 'opacity-0 translate-y-8 scale-90 pointer-events-none'
         }`}
       >
         {/* Header Panel */}

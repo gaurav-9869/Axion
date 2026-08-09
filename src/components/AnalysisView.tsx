@@ -79,7 +79,10 @@ export default function AnalysisView({ loggedSessions, userSettings, setUserSett
   let totalSessions = 0;
   let exerciseSessions = 0;
 
-  activeLogs.forEach(log => {
+  // Restrict to same-date (last 9 days, using last 14 logs logic configured for 9)
+  const last9Logs = getLogsForLastNDays(9);
+
+  last9Logs.forEach(log => {
     if (!log || log.isMissed) return;
     totalSessions++;
     if (log.sessionType === 'Exercise') exerciseSessions++;

@@ -149,7 +149,11 @@ export function getSubjectConfig(sub: string | undefined): SubjectConfig {
   };
 }
 
-export function calculateNextReviewDate(log: LogItem): string {
+export function calculateNextReviewDate(log: LogItem): string | undefined {
+  if (log.sessionType === 'Exercise' || log.sessionType === 'Revise') {
+      return undefined;
+  }
+
   // Deterministic Math Logic for Spaced Repetition Scheduling
   // Base interval: 1 day
   let intervalDays = 1;
@@ -169,20 +173,6 @@ export function calculateNextReviewDate(log: LogItem): string {
       if (errorRate < 0.1) intervalDays += 2;
       else if (errorRate > 0.5) intervalDays -= 1;
     }
-  } else if (log.sessionType === 'Exercise') {
-    intervalDays = 5;
-    
-    if (log.errors !== undefined) {
-      if (log.errors === 0) intervalDays += 5;
-      else if (log.errors > 5) intervalDays -= 3;
-    }
-    
-    if (log.checkingMins && log.activeMins) {
-      const ratio = log.checkingMins / Math.max(log.activeMins, 1);
-      if (ratio > 0.4) intervalDays -= 2;
-    }
-  } else if (log.sessionType === 'Revise') {
-    intervalDays = 7;
   }
 
   // Cognitive load analysis
