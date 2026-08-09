@@ -46,7 +46,7 @@ export default function ConceptVelocity({ loggedSessions }: ConceptVelocityProps
   const highestSubjectName = getSubjectConfig(highestSubjectKey).name;
 
   return (
-    <section className="w-full flex flex-col gap-6 text-zinc-100">
+    <div className="w-full flex flex-col gap-6 text-zinc-100">
         {/* Goal #5: Simplified normal terminology headings */}
         <div>
             <h3 className="text-xl font-bold text-white tracking-tight">Syllabus Completion</h3>
@@ -54,7 +54,7 @@ export default function ConceptVelocity({ loggedSessions }: ConceptVelocityProps
         </div>
         
         {/* Goal #7 & #8: Frosted layout panel constraints */}
-        <div className="bg-black/20 border border-white/5 p-6 rounded-2xl flex flex-col gap-6 w-full">
+        <div className="ios-glass-card-nested p-6 flex flex-col gap-6 w-full">
            <div className="flex justify-between items-end">
                <div>
                   <h4 className="text-sm font-bold text-zinc-300 uppercase tracking-wider">Topics Mastered</h4>
@@ -95,6 +95,6 @@ export default function ConceptVelocity({ loggedSessions }: ConceptVelocityProps
             </p>
         </div>
 
-    </section>
+    </div>
   );
 }

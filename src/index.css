@@ -1,14 +1,14 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 @import "tailwindcss";
 
 @theme {
   --color-background: transparent;
-  --color-surface-glass: rgba(15, 22, 36, var(--glass-opacity, 0.45));
-  --color-surface-glass-nested: rgba(255, 255, 255, 0.04);
-  --color-surface-input: rgba(0, 0, 0, 0.4);
+  --color-surface-glass: rgba(15, 23, 42, var(--panel-opacity, 0.75));
+  --color-surface-glass-nested: rgba(255, 255, 255, 0.05);
+  --color-surface-input: rgba(0, 0, 0, 0.5);
   
   --color-primary: var(--theme-primary, #10B981);
-  --color-primary-container: rgba(16, 185, 129, 0.15);
+  --color-primary-container: rgba(16, 185, 129, 0.18);
   
   --color-warning: #F59E0B;
   --color-error: #EF4444;
@@ -16,10 +16,15 @@
   
   --color-on-surface: #F8FAFC;
   --color-on-surface-variant: #94A3B8;
-  --color-outline-glass: rgba(255, 255, 255, 0.08);
+  --color-outline-glass: rgba(255, 255, 255, 0.12);
 }
 
-body {
+html { 
+  background-color: #0a0f18 !important; 
+}
+
+body { 
+  background-color: transparent !important;
   margin: 0;
   padding: 0;
   min-height: 100vh;
@@ -29,46 +34,81 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Liquid Glass Utilities */
+/* Tactile Buttons */
+button {
+  transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.2s ease, opacity 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+button:active {
+  transform: scale(0.96);
+}
+
+/* Dynamic Wallpaper Canvas Backing */
 .ios-wallpaper-canvas {
   position: fixed;
   inset: 0;
   z-index: -1;
-  background-image: var(--wallpaper-url, radial-gradient(circle at top left, #111827 0%, #0a0f18 100%));
+  background-image: var(--wallpaper-url, radial-gradient(circle at top left, #1e1b4b 0%, #0a0f18 100%));
   background-size: cover;
   background-position: center;
   background-attachment: fixed;
   transition: background-image 0.5s ease-in-out;
 }
 
+.ios-wallpaper-canvas::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: var(--wallpaper-dim, 0.00);
+  z-index: 0;
+}
+
+:root {
+  --global-blur: var(--glass-blur, 20px);
+  --global-blur-nested: 12px;
+}
+
+/* Wallpaper Dimmer Overlay Class */
+.ios-wallpaper-dimmer {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-color: rgba(0, 0, 0, var(--wallpaper-dim, 0));
+  pointer-events: none;
+}
+
+/* Glassmorphism Styles with High Cross-Browser & Cloud Run Compatibility */
 .ios-glass-panel {
-  background: var(--color-surface-glass);
-  backdrop-filter: blur(var(--glass-blur, 24px));
-  -webkit-backdrop-filter: blur(var(--glass-blur, 24px));
-  border-radius: 26px;
-  border: 1px solid var(--color-outline-glass);
-  border-top: 1px solid rgba(255, 255, 255, 0.18);
-  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.15), 0 20px 50px rgba(0, 0, 0, 0.25);
-  transition: background 0.3s ease, backdrop-filter 0.3s ease, border-color 0.2s ease;
+  background-color: rgba(13, 17, 28, 0.78);
+  background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.01) 100%);
+  -webkit-backdrop-filter: blur(var(--global-blur));
+  backdrop-filter: blur(var(--global-blur));
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-top: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  transition: background-color 0.3s ease, backdrop-filter 0.3s ease, border-color 0.2s ease, box-shadow 0.3s ease;
 }
 
 .ios-glass-card-nested {
-  background: var(--color-surface-glass-nested);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background-color: rgba(255, 255, 255, 0.04);
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.03) 0%, rgba(0, 0, 0, 0.1) 100%);
+  -webkit-backdrop-filter: blur(var(--global-blur-nested));
+  backdrop-filter: blur(var(--global-blur-nested));
   border-radius: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.07);
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .ios-glass-card-nested:hover {
-  background: rgba(255, 255, 255, 0.07);
-  border-color: rgba(255, 255, 255, 0.08);
+  background-color: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
 }
 
 .ios-glass-input {
-  background: var(--color-surface-input);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background-color: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 14px;
   color: var(--color-on-surface);
   outline: none;
@@ -76,22 +116,56 @@ body {
 }
 
 .ios-glass-input:focus {
-  border-color: rgba(16, 185, 129, 0.4);
-  background: rgba(0, 0, 0, 0.55);
-  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.5);
+  background-color: rgba(0, 0, 0, 0.65);
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
 }
 
-/* Premium Motion Animations */
-@keyframes slideUpFade {
-  from { opacity: 0; transform: translateY(15px); }
-  to { opacity: 1; transform: translateY(0); }
+/* Keyframe Animations for Fluid UI Motion */
+@keyframes iosSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes iosFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pulseGlow {
+  0%, 100% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
 }
 
 .animate-ios-fade-in {
-  animation: slideUpFade 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: iosSlideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-/* Minimal Scrollbar */
+.animate-ios-slide-up {
+  animation: iosSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-pulse-glow {
+  animation: pulseGlow 2.5s infinite ease-in-out;
+}
+
+/* Custom Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -100,9 +174,9 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.15);
   border-radius: 10px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.3);
 }

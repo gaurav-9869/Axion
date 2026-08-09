@@ -1,3 +1,4 @@
+import { audioManager } from "../lib/audio";
 import React, { useState } from 'react';
 import { PlanItem, SubjectKey, SessionMode, UserSettings, getSubjectConfig } from '../types';
 import { nanoid } from 'nanoid';
@@ -15,6 +16,8 @@ export default function BatchPlanner({ morningPlan, setMorningPlan, logActivePla
   const [taskTopic, setTaskTopic] = useState('');
   const [taskType, setTaskType] = useState<SessionMode>('Study');
   const [taskTargetMins, setTaskTargetMins] = useState('45');
+  const [taskChapter, setTaskChapter] = useState('');
+  const [taskMcqCount, setTaskMcqCount] = useState('');
 
   const handleAddTask = (e: React.FormEvent) => {
     e.preventDefault();
@@ -22,91 +25,114 @@ export default function BatchPlanner({ morningPlan, setMorningPlan, logActivePla
 
     const newPlan: PlanItem = {
       id: nanoid(),
-                 timestamp: Date.now(),
+      timestamp: Date.now(),
       subject: taskSubject,
       topic: taskTopic.trim(),
       sessionType: taskType,
       targetMins: Number(taskTargetMins) || 45,
-      status: 'pending'
+      status: 'pending',
+      chapter: taskChapter.trim() || undefined,
+      mcqCount: taskMcqCount ? Number(taskMcqCount) : undefined
     };
 
     setMorningPlan(prev => [...prev, newPlan]);
     setTaskTopic('');
+    setTaskChapter('');
+    setTaskMcqCount('');
   };
 
   const handleRemoveTask = (id: string) => {
     setMorningPlan(prev => prev.filter(p => p.id !== id));
   };
 
-  const glassStyle = {
-    backdropFilter: 'blur(var(--glass-blur, 24px))',
-    WebkitBackdropFilter: 'blur(var(--glass-blur, 24px))',
-    backgroundColor: 'rgba(10, 15, 24, var(--glass-opacity, 0.45))'
-  };
 
   return (
-    <div className="flex flex-col gap-6 w-full text-zinc-100 animate-ios-fade-in">
+    <div className="flex flex-col gap-6 w-full text-zinc-100 ">
       
       {/* Target Planning Input Form Deck */}
-      <form onSubmit={handleAddTask} className="ios-glass-panel p-5 flex flex-col gap-4" style={glassStyle}>
-        <div className="text-xs font-bold uppercase tracking-widest text-zinc-400 border-b border-white/5 pb-2">
-          Daily Planner
+      <form onSubmit={handleAddTask} className="ios-glass-panel p-6 flex flex-col gap-6">
+        <div className="border-b border-white/5 pb-3">
+          <h3 className="text-base font-bold tracking-tight text-white uppercase">DAILY PLANNER</h3>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="flex flex-col gap-1.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+          <div className="flex flex-col gap-2">
             <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">Subject Matrix</label>
             <select 
               value={taskSubject} 
               onChange={e => setTaskSubject(e.target.value as SubjectKey)}
-              className="ios-glass-input p-3 text-sm bg-[#0a0f18] border-white/[0.06] outline-none rounded-xl"
+              className="ios-glass-input p-3.5 text-sm border-white/5 outline-none rounded-xl text-white"
             >
               {userSettings.activeSubjects.map(sub => (
-                <option key={sub} value={sub} className="bg-[#0a0f18]">{getSubjectConfig(sub).name}</option>
+                <option key={sub} value={sub} className="bg-zinc-900">{getSubjectConfig(sub).name}</option>
               ))}
             </select>
           </div>
 
-          <div className="flex flex-col gap-1.5">
+          <div className="flex flex-col gap-2">
             <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">Session Task Mode</label>
-            <div className="grid grid-cols-3 bg-black/20 p-1 border border-white/[0.05] rounded-xl">
+            <div className="grid grid-cols-3 ios-glass-card-nested p-1 border border-white/5 rounded-xl">
               {(['Study', 'Revise', 'Exercise'] as SessionMode[]).map(m => (
-                <button type="button" key={m} onClick={() => setTaskType(m)} className={`py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${taskType === m ? 'bg-primary text-white' : 'text-zinc-500'}`}>{m}</button>
+                <button type="button" key={m} onClick={() => setTaskType(m)} className={`py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${taskType === m ? 'bg-primary text-white shadow-md' : 'text-zinc-500 hover:text-zinc-300'}`}>{m}</button>
               ))}
             </div>
           </div>
         </div>
 
-        <div className="flex flex-col gap-1.5">
-          <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">Chapter Vector Target</label>
+        <div className="flex flex-col gap-2">
+          <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">Topic / Objective</label>
           <input 
             type="text" 
             value={taskTopic} 
             onChange={e => setTaskTopic(e.target.value)}
             placeholder="e.g., Circular Motion Derivations..." 
-            className="ios-glass-input p-3.5 text-sm rounded-xl border-white/[0.06] bg-black/10 outline-none"
+            className="ios-glass-input p-3.5 text-sm rounded-xl border-white/5 outline-none text-white"
           />
         </div>
 
-        <div className="flex flex-col gap-1.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+          <div className="flex flex-col gap-2">
+            <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">Chapter Name/Number (Optional)</label>
+            <input 
+              type="text" 
+              value={taskChapter} 
+              onChange={e => setTaskChapter(e.target.value)}
+              placeholder="e.g., Chapter 4" 
+              className="ios-glass-input p-3.5 text-sm rounded-xl border-white/5 outline-none text-white"
+            />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">MCQ Target Count (Optional)</label>
+            <input 
+              type="number" 
+              value={taskMcqCount} 
+              onChange={e => setTaskMcqCount(e.target.value)}
+              placeholder="e.g., 45" 
+              className="ios-glass-input p-3.5 text-sm rounded-xl border-white/5 outline-none text-white"
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2">
           <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">Target Duration (Minutes)</label>
           <input 
             type="number" 
             value={taskTargetMins} 
             onChange={e => setTaskTargetMins(e.target.value)}
-            className="ios-glass-input p-3.5 text-sm rounded-xl border-white/[0.06] bg-black/10 outline-none"
+            className="ios-glass-input p-3.5 text-sm rounded-xl border-white/5 outline-none text-white"
           />
         </div>
 
-        <button type="submit" className="w-full py-3 mt-1 bg-primary hover:bg-emerald-600 text-white font-bold text-xs rounded-xl transition-all shadow-md">
+        <button type="submit" className="w-full py-4 mt-1 bg-primary hover:bg-emerald-600 text-white font-bold text-xs rounded-xl transition-all shadow-md cursor-pointer">
           Append Plan Element
         </button>
       </form>
 
       {/* Render Queue Stream */}
-      <div className="ios-glass-panel p-5 flex flex-col gap-3" style={glassStyle}>
-        <div className="text-xs font-bold uppercase tracking-widest text-zinc-500 border-b border-white/5 pb-2">
-          Active Directives Queue
+      <div className="ios-glass-panel p-6 flex flex-col gap-6">
+        <div className="border-b border-white/5 pb-3">
+          <h3 className="text-base font-bold tracking-tight text-white uppercase">ACTIVE DIRECTIVES QUEUE</h3>
         </div>
 
         {morningPlan.length === 0 && (
@@ -118,11 +144,18 @@ export default function BatchPlanner({ morningPlan, setMorningPlan, logActivePla
             const config = getSubjectConfig(plan.subject);
             const isLoggedActive = logActivePlanId === plan.id;
             return (
-              <div key={plan.id} className="bg-black/15 border border-white/[0.04] p-3.5 rounded-xl flex items-center justify-between gap-3 relative overflow-hidden">
+              <div key={plan.id} className="ios-glass-card-nested border-0 p-3.5 rounded-xl flex items-center justify-between gap-3 relative overflow-hidden">
                 <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: config.color }} />
                 <div className="pl-2 flex flex-col gap-0.5 overflow-hidden">
                   <span className="text-[10px] font-bold uppercase" style={{ color: config.color }}>{config.name} — {plan.sessionType}</span>
-                  <p className="text-sm font-semibold text-white truncate max-w-md">{plan.topic}</p>
+                  <p className="text-sm font-semibold text-white truncate max-w-md">
+                    {plan.topic}
+                    {(plan.chapter || plan.mcqCount !== undefined) && (
+                      <span className="text-xs text-zinc-400 font-normal ml-2 block sm:inline">
+                        {plan.chapter && `Ch. ${plan.chapter}`} {plan.mcqCount !== undefined && `(${plan.mcqCount} MCQs)`}
+                      </span>
+                    )}
+                  </p>
                   <span className="text-[11px] text-zinc-500 font-medium">{plan.targetMins}m allocated window</span>
                 </div>
 

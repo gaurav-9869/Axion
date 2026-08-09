@@ -1,6 +1,9 @@
+import { audioManager } from "../lib/audio";
 import React, { useState, useEffect, useRef } from 'react';
 import { nanoid } from 'nanoid';
 import { SubjectKey, SessionMode, LogItem, PlanItem, UserSettings, getSubjectConfig, getFocusScore, calculateNextReviewDate } from '../types';
+import { generateWithGemini } from '../lib/gemini';
+import { saveStudyLog } from '../services/dbService';
 
 interface DailyLedgerProps {
   morningPlan: PlanItem[];
@@ -43,6 +46,10 @@ interface DailyLedgerProps {
   setLogSa: (v: string) => void;
   logLa: string;
   setLogLa: (v: string) => void;
+  logChapter: string;
+  setLogChapter: (v: string) => void;
+  logMcqCount: string;
+  setLogMcqCount: (v: string) => void;
   userSettings: UserSettings;
   setUserSettings: React.Dispatch<React.SetStateAction<UserSettings>>;
 }
@@ -94,7 +101,7 @@ export default function DailyLedger(props: DailyLedgerProps) {
       if (canvasRef.current) {
           const ctx = canvasRef.current.getContext('2d');
           if (ctx) ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-          setCanvasDrawingData(undefined);
+          setCanvasDrawingData(undefined); audioManager.playSuccess();
       }
   };
 
@@ -104,7 +111,10 @@ export default function DailyLedger(props: DailyLedgerProps) {
       }
   };
 
-  const handleSaveLog = () => {
+  const handleSaveLog = async () => {
+    if (!props.logTopic.trim() && !canvasDrawingData) {
+        audioManager.playError();
+    }
       if (!props.logTopic.trim()) return;
 
       const newLog: LogItem = {
@@ -121,7 +131,6 @@ export default function DailyLedger(props: DailyLedgerProps) {
           checkingMins: (props.logType === 'Study' || props.logType === 'Exercise') && Number(props.logChecking) ? Number(props.logChecking) : undefined,
           practiceMins: props.logType === 'Study' && Number(props.logPractice) ? Number(props.logPractice) : undefined,
           errors: (props.logType === 'Study' || props.logType === 'Exercise') && Number(props.logErrors) !== undefined ? Number(props.logErrors) : undefined,
-          retentionScore: props.logType === 'Study' ? (Number(props.logRetention) || 5) : undefined,
           startPage: props.logType !== 'Exercise' && Number(props.logStartPage) ? Number(props.logStartPage) : undefined,
           endPage: props.logType !== 'Exercise' && Number(props.logEndPage) ? Number(props.logEndPage) : undefined,
           vsaCount: (props.logType === 'Exercise' || props.logType === 'Study') && Number(props.logVsa) ? Number(props.logVsa) : undefined,
@@ -131,19 +140,30 @@ export default function DailyLedger(props: DailyLedgerProps) {
           notes: props.logNotes.trim(),
           systemRefinement: props.systemRefinement.trim() || undefined,
           synced: false,
-          scratchpadImage: canvasDrawingData
+          scratchpadImage: canvasDrawingData,
+          chapter: props.logChapter.trim() || undefined,
+          mcqCount: props.logMcqCount && Number(props.logMcqCount) > 0 ? Number(props.logMcqCount) : undefined
       };
+
+      if (props.logType === 'Study') {
+          newLog.retentionScore = Number(props.logRetention) || 5;
+      }
 
       // Spaced Repetition Scheduling
       newLog.nextReviewDate = calculateNextReviewDate(newLog);
 
       props.setLoggedSessions(prev => [...prev, newLog]);
+      try {
+          await saveStudyLog(newLog);
+      } catch (err) {
+          console.error("Failed to save manual study log to database:", err);
+      }
       
       if (props.logActivePlanId && props.setMorningPlan) {
           props.setMorningPlan(prev => prev.map(p => p.id === props.logActivePlanId ? { ...p, status: 'completed' } : p));
       }
 
-      props.setLogTopic('');
+      props.setLogTopic(''); audioManager.playSuccess();
       props.setLogActivePlanId(null);
       props.setLogActive('0');
       props.setLogDistract('0');
@@ -155,27 +175,24 @@ export default function DailyLedger(props: DailyLedgerProps) {
       props.setLogVsa('0');
       props.setLogSa('0');
       props.setLogLa('0');
+      props.setLogChapter('');
+      props.setLogMcqCount('0');
       props.setLogRetention('5');
       props.setLogChecking('0');
       props.setLogPractice('0');
       props.setLogErrors('0');
       props.setSystemRefinement('');
-      setCanvasDrawingData(undefined);
+      setCanvasDrawingData(undefined); audioManager.playSuccess();
       setIsAiPopulated(false);
   };
 
   const handleExtractAI = async () => {
+    audioManager.playHologramOpen();
       if (!autoFillInput.trim()) return;
 
       setIsExtracting(true);
       try {
-          const res = await fetch(`/api/gemini/generate`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ prompt: `Analyze this description: "${autoFillInput}". Extract parameters into raw JSON: { "topic": "string", "subject": "bio"|"phys"|"chem"|"math", "sessionType": "Study"|"Revise"|"Exercise", "activeMins": number, "distractionMins": number, "startPage": number, "endPage": number, "vsaqCount": number, "saqCount": number, "laqCount": number, "retentionScore": number, "frictionPoint": "string" }.` })
-          });
-          const data = await res.json();
-          const textResponse = data.text || '{}';
+          const textResponse = await generateWithGemini(`Analyze this description: "${autoFillInput}". Extract parameters into raw JSON: { "topic": "string", "subject": "bio"|"phys"|"chem"|"math", "sessionType": "Study"|"Revise"|"Exercise", "activeMins": number, "distractionMins": number, "startPage": number, "endPage": number, "vsaqCount": number, "saqCount": number, "laqCount": number, "retentionScore": number, "frictionPoint": "string" }.`);
           const parsed = JSON.parse(textResponse.replace(/```json|```/g, '').trim());
           
           if (parsed.topic) props.setLogTopic(parsed.topic);
@@ -201,15 +218,17 @@ export default function DailyLedger(props: DailyLedgerProps) {
   };
 
   return (
-    <section className="flex flex-col gap-6 w-full text-zinc-100">
-        <div className="ios-glass-panel p-6 flex flex-col gap-6">
+    <section className="ios-glass-panel p-6 flex flex-col gap-6 w-full text-zinc-100">
+        <div className="border-b border-white/5 pb-3">
+            <h3 className="text-base font-bold tracking-tight text-white uppercase">DAILY LOGGER</h3>
+        </div>
            
 
 
-           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                <div className="flex flex-col gap-2">
                    <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Subject</label>
-                   <select value={props.logSubject} onChange={e => props.setLogSubject(e.target.value as SubjectKey)} className="w-full bg-black/40 border border-white/10 rounded-xl p-3.5 text-sm outline-none text-white">
+                   <select value={props.logSubject} onChange={e => props.setLogSubject(e.target.value as SubjectKey)} className="w-full ios-glass-input p-3.5 text-sm border-white/5 outline-none rounded-xl text-white">
                        {props.userSettings.activeSubjects.map(sub => (
                            <option key={sub} value={sub} className="bg-zinc-900">{getSubjectConfig(sub).name}</option>
                        ))}
@@ -217,90 +236,101 @@ export default function DailyLedger(props: DailyLedgerProps) {
                </div>
                <div className="flex flex-col gap-2">
                    <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Type</label>
-                   <div className="grid grid-cols-3 bg-black/40 border border-white/10 rounded-xl p-1.5">
+                   <div className="grid grid-cols-3 ios-glass-card-nested p-1 border border-white/5 rounded-xl">
                        {(['Study', 'Revise', 'Exercise'] as SessionMode[]).map(m => (
-                           <button key={m} onClick={() => props.logType !== m && props.setLogType(m)} className={`py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${props.logType === m ? 'bg-white/10 text-white shadow-inner' : 'text-zinc-400 hover:text-white'}`}>{m}</button>
+                           <button key={m} onClick={() => props.logType !== m && props.setLogType(m)} className={`py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${props.logType === m ? 'bg-primary text-white shadow-md' : 'text-zinc-500 hover:text-zinc-300'}`}>{m}</button>
                        ))}
                    </div>
                </div>
            </div>
 
            <div className="flex flex-col gap-2">
-               <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Topic / Chapter</label>
-               <input type="text" value={props.logTopic} onChange={e => props.setLogTopic(e.target.value)} placeholder="Topic details..." className="w-full bg-black/40 border border-white/10 rounded-xl p-3.5 text-sm outline-none" />
+               <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Topic</label>
+               <input type="text" value={props.logTopic} onChange={e => props.setLogTopic(e.target.value)} placeholder="Topic details..." className="w-full ios-glass-input p-3.5 text-sm rounded-xl border-white/5 outline-none" />
+           </div>
+
+           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+               <div className="flex flex-col gap-2">
+                   <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Chapter Name/Number (Optional)</label>
+                   <input type="text" value={props.logChapter} onChange={e => props.setLogChapter(e.target.value)} placeholder="e.g., Chapter 4" className="w-full ios-glass-input p-3.5 text-sm rounded-xl border-white/5 outline-none" />
+               </div>
+               <div className="flex flex-col gap-2">
+                   <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">MCQs Completed (Optional)</label>
+                   <input type="number" value={props.logMcqCount} onChange={e => props.setLogMcqCount(e.target.value)} placeholder="e.g., 45" className="w-full ios-glass-input p-3.5 text-sm rounded-xl border-white/5 outline-none text-center" />
+               </div>
            </div>
 
            {props.logType === 'Revise' && (
                <div className="flex flex-col gap-2">
                    <label className="text-xs font-bold tracking-wider uppercase text-zinc-400">Revision Style</label>
-                   <div className="grid grid-cols-3 bg-black/40 border border-white/10 rounded-xl p-1.5">
+                   <div className="grid grid-cols-3 ios-glass-card-nested p-1 border border-white/5 rounded-xl">
                        {['Quick Recap', 'Standard Review', 'Deep Dive'].map(depth => (
-                           <button key={depth} onClick={() => setRevisionDepth(depth)} className={`py-2 text-xs rounded-lg transition-all cursor-pointer ${revisionDepth === depth ? 'bg-white/10 text-white font-bold' : 'text-zinc-400 hover:text-white'}`}>{depth}</button>
+                           <button key={depth} onClick={() => setRevisionDepth(depth)} className={`py-2 text-xs rounded-lg transition-all cursor-pointer font-bold ${revisionDepth === depth ? 'bg-primary text-white shadow-md' : 'text-zinc-500 hover:text-zinc-300'}`}>{depth}</button>
                        ))}
                    </div>
                </div>
            )}
 
            {props.logType !== 'Exercise' && (
-               <div className="grid grid-cols-2 gap-5">
+               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                    <div className="flex flex-col gap-2">
                        <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Start Page</label>
-                       <input type="number" value={props.logStartPage} onChange={e => props.setLogStartPage(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl p-3.5 text-sm outline-none" />
+                       <input type="number" value={props.logStartPage} onChange={e => props.setLogStartPage(e.target.value)} className="w-full ios-glass-input p-3.5 text-sm rounded-xl border-white/5 outline-none text-center" />
                    </div>
                    <div className="flex flex-col gap-2">
                        <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">End Page</label>
-                       <input type="number" value={props.logEndPage} onChange={e => props.setLogEndPage(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl p-3.5 text-sm outline-none" />
+                       <input type="number" value={props.logEndPage} onChange={e => props.setLogEndPage(e.target.value)} className="w-full ios-glass-input p-3.5 text-sm rounded-xl border-white/5 outline-none text-center" />
                    </div>
                </div>
            )}
 
            {(props.logType === 'Exercise' || props.logType === 'Study') && (
-               <div className="grid grid-cols-3 gap-3">
+               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                    <div className="flex flex-col gap-2">
                        <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Short Qs</label>
-                       <input type="number" value={props.logVsa} onChange={e => props.setLogVsa(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl p-3.5 text-sm outline-none text-center" />
+                       <input type="number" value={props.logVsa} onChange={e => props.setLogVsa(e.target.value)} className="w-full ios-glass-input p-3.5 text-sm rounded-xl border-white/5 outline-none text-center" />
                    </div>
                    <div className="flex flex-col gap-2">
                        <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Medium Qs</label>
-                       <input type="number" value={props.logSa} onChange={e => props.setLogSa(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl p-3.5 text-sm outline-none text-center" />
+                       <input type="number" value={props.logSa} onChange={e => props.setLogSa(e.target.value)} className="w-full ios-glass-input p-3.5 text-sm rounded-xl border-white/5 outline-none text-center" />
                    </div>
                    <div className="flex flex-col gap-2">
                        <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Long Qs</label>
-                       <input type="number" value={props.logLa} onChange={e => props.setLogLa(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl p-3.5 text-sm outline-none text-center" />
+                       <input type="number" value={props.logLa} onChange={e => props.setLogLa(e.target.value)} className="w-full ios-glass-input p-3.5 text-sm rounded-xl border-white/5 outline-none text-center" />
                    </div>
                </div>
            )}
 
-           <div className="grid grid-cols-3 gap-4 bg-black/20 p-3 rounded-2xl border border-white/5">
+           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-black/20 p-3 border border-white/5 rounded-xl">
                <div className="flex flex-col gap-1">
                    <label className="text-[10px] uppercase text-zinc-400 font-bold text-center">Study Mins</label>
-                   <input type="number" value={props.logActive} onChange={e => props.setLogActive(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl p-2 text-sm text-center font-bold text-emerald-400 outline-none" />
+                   <input type="number" value={props.logActive} onChange={e => props.setLogActive(e.target.value)} className="w-full ios-glass-input p-2 text-sm text-center font-bold outline-none" style={{ color: 'var(--theme-primary, #10B981)' }} />
                </div>
                <div className="flex flex-col gap-1">
                    <label className="text-[10px] uppercase text-zinc-400 font-bold text-center">Distracted</label>
-                   <input type="number" value={props.logDistract} onChange={e => props.setLogDistract(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl p-2 text-sm text-center font-bold text-rose-400 outline-none" />
+                   <input type="number" value={props.logDistract} onChange={e => props.setLogDistract(e.target.value)} className="w-full ios-glass-input p-2 text-sm text-center font-bold text-rose-400 outline-none" />
                </div>
                <div className="flex flex-col gap-1">
                    <label className="text-[10px] uppercase text-zinc-400 font-bold text-center">Break Mins</label>
-                   <input type="number" value={props.logRecover} onChange={e => props.setLogRecover(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl p-2 text-sm text-center font-bold text-sky-400 outline-none" />
+                   <input type="number" value={props.logRecover} onChange={e => props.setLogRecover(e.target.value)} className="w-full ios-glass-input p-2 text-sm text-center font-bold text-sky-400 outline-none" />
                </div>
            </div>
 
            {(props.logType === 'Study' || props.logType === 'Exercise') && (
-               <div className="grid grid-cols-3 gap-4 bg-black/20 p-3 rounded-2xl border border-white/5">
+               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-black/20 p-3 border border-white/5 rounded-xl">
                    <div className="flex flex-col gap-1">
                        <label className="text-[10px] uppercase text-zinc-400 font-bold text-center" title="Time spent checking answers">Checking Mins</label>
-                       <input type="number" value={props.logChecking} onChange={e => props.setLogChecking(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl p-2 text-sm text-center font-bold text-emerald-400 outline-none" />
+                       <input type="number" value={props.logChecking} onChange={e => props.setLogChecking(e.target.value)} className="w-full ios-glass-input p-2 text-sm text-center font-bold outline-none" style={{ color: 'var(--theme-primary, #10B981)' }} />
                    </div>
                    {props.logType === 'Study' ? (
                        <div className="flex flex-col gap-1">
                            <label className="text-[10px] uppercase text-zinc-400 font-bold text-center" title="Time spent practicing questions">Practice Mins</label>
-                           <input type="number" value={props.logPractice} onChange={e => props.setLogPractice(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl p-2 text-sm text-center font-bold text-emerald-400 outline-none" />
+                           <input type="number" value={props.logPractice} onChange={e => props.setLogPractice(e.target.value)} className="w-full ios-glass-input p-2 text-sm text-center font-bold outline-none" style={{ color: 'var(--theme-primary, #10B981)' }} />
                        </div>
                    ) : <div/>}
                    <div className="flex flex-col gap-1">
                        <label className="text-[10px] uppercase text-zinc-400 font-bold text-center" title="Number of incorrect answers">Errors</label>
-                       <input type="number" value={props.logErrors} onChange={e => props.setLogErrors(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl p-2 text-sm text-center font-bold text-rose-400 outline-none" />
+                       <input type="number" value={props.logErrors} onChange={e => props.setLogErrors(e.target.value)} className="w-full ios-glass-input p-2 text-sm text-center font-bold text-rose-400 outline-none" />
                    </div>
                </div>
            )}
@@ -309,7 +339,7 @@ export default function DailyLedger(props: DailyLedgerProps) {
              <div className="flex flex-col gap-2">
                  <div className="flex justify-between items-center">
                      <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Retention Score</label>
-                     <span className="text-xs font-mono font-bold bg-black/40 border border-white/10 px-2.5 py-1 rounded text-amber-400">{props.logRetention} / 10</span>
+                     <span className="text-xs font-mono font-bold border border-white/10 px-2.5 py-1 rounded" style={{ color: "var(--theme-primary)" }}>{props.logRetention} / 10</span>
                  </div>
                  {isAiPopulated && (
                      <div className="w-full p-3 bg-black/30 border border-white/5 rounded-xl text-[12px] text-zinc-400">
@@ -319,7 +349,7 @@ export default function DailyLedger(props: DailyLedgerProps) {
                  <input
                      type="range" min="1" max="10" step="1" value={props.logRetention}
                      onChange={e => { props.setLogRetention(e.target.value); setIsAiPopulated(false); }}
-                     className="w-full accent-amber-400 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer mt-1"
+                     className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer mt-1" style={{ accentColor: "var(--theme-primary)" }}
                  />
              </div>
            )}
@@ -333,17 +363,17 @@ export default function DailyLedger(props: DailyLedgerProps) {
                        <span className="material-symbols-outlined text-[14px]">draw</span> Open Scratchpad
                    </button>
                </div>
-               <textarea rows={2} value={frictionText} onChange={e => setFrictionText(e.target.value)} placeholder="What concepts or hurdles cost you time? (Optional)..." className="w-full bg-black/40 border border-white/10 rounded-b-2xl p-4 text-sm outline-none text-white focus:border-white/20 transition-colors resize-none" />
+               <textarea rows={2} value={frictionText} onChange={e => setFrictionText(e.target.value)} placeholder="What concepts or hurdles cost you time? (Optional)..." className="w-full border border-white/10 rounded-b-2xl p-4 text-sm outline-none text-white focus:border-white/20 transition-colors resize-none" />
            </div>
 
            <div className="flex flex-col gap-2">
                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">System Refinements</label>
-               <textarea rows={2} value={props.systemRefinement} onChange={e => props.setSystemRefinement(e.target.value)} placeholder="Experimental changes to your study system..." className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-sm outline-none resize-none text-amber-100" />
+               <textarea rows={2} value={props.systemRefinement} onChange={e => props.setSystemRefinement(e.target.value)} placeholder="Experimental changes to your study system..." className="w-full ios-glass-input p-4 text-sm outline-none resize-none text-amber-100" />
            </div>
 
            <div className="flex flex-col gap-2">
                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Study Notes</label>
-               <textarea rows={2} value={props.logNotes} onChange={e => props.setLogNotes(e.target.value)} placeholder="Additional session notes..." className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-sm outline-none resize-none" />
+               <textarea rows={2} value={props.logNotes} onChange={e => props.setLogNotes(e.target.value)} placeholder="Additional session notes..." className="w-full ios-glass-input p-4 text-sm outline-none resize-none" />
            </div>
 
            <button 
@@ -353,7 +383,6 @@ export default function DailyLedger(props: DailyLedgerProps) {
            >
                Save Session Log
            </button>
-        </div>
 
         {/* Scratchpad Overlay Canvas Frame */}
         {showScratchpad && (
@@ -366,7 +395,7 @@ export default function DailyLedger(props: DailyLedgerProps) {
                             <span>Sketch Pad</span>
                         </div>
 
-                        <div className="flex items-center gap-3 bg-black/40 px-4 py-2 rounded-2xl border border-white/5">
+                        <div className="flex items-center gap-3 px-4 py-2 rounded-2xl border border-white/5">
                             <span className="material-symbols-outlined text-zinc-500 text-xs">palette</span>
                             {[
                                 { color: '#10B981', label: 'Emerald' },
@@ -396,7 +425,7 @@ export default function DailyLedger(props: DailyLedgerProps) {
                             <button
                                type="button"
                                onClick={() => setIsEraserMode(!isEraserMode)}
-                               className={`p-2.5 rounded-xl border transition-all flex items-center justify-center cursor-pointer ${isEraserMode ? 'bg-amber-500/20 text-amber-400 border-amber-500/40' : 'bg-white/5 text-zinc-300 border-white/10 hover:bg-white/10'}`}
+                               className={`p-2.5 rounded-xl border transition-all flex items-center justify-center cursor-pointer ${isEraserMode ? 'bg-amber-500/20 text-[var(--theme-primary)] border-amber-500/40' : 'bg-white/5 text-zinc-300 border-white/10 hover:bg-white/10'}`}
                                title={isEraserMode ? "Switch to Drawing Pen" : "Switch to Eraser"}
                             >
                                 <span className="material-symbols-outlined text-[20px]">

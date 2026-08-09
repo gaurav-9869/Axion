@@ -1,4 +1,4 @@
-export type SubjectKey = 'bio' | 'phys' | 'chem' | 'math';
+export type SubjectKey = string;
 export type SessionMode = 'Study' | 'Revise' | 'Exercise';
 
 export interface PlanItem {
@@ -10,6 +10,8 @@ export interface PlanItem {
   targetMins: number;
   status: 'pending' | 'completed';
   timestamp?: number;
+  chapter?: string;
+  mcqCount?: number;
 }
 
 export interface LogItem {
@@ -41,6 +43,8 @@ export interface LogItem {
   synced?: boolean;
   nextReviewDate?: string; // Calculated SR date
   timestamp?: number;
+  chapter?: string;
+  mcqCount?: number;
 }
 
 export interface ArchiveState {
@@ -48,13 +52,22 @@ export interface ArchiveState {
   systemRefinements: LogItem[]; // Quick access to logs with system Refinements
 }
 
+export interface SubjectPreference {
+  id: string;
+  name: string;
+  color: string;
+  bg: string;
+  text: string;
+  border: string;
+}
 
 export interface UserSettings {
   name: string;
   className: string;
   activeSubjects: SubjectKey[];
   subjectGoals: Record<string, string>;
-  subjectPageTotals: Record<string, number>; // Total syllabus pages per subject
+  subjectPageTotals: Record<string, number>;
+  uiSounds?: boolean; // Total syllabus pages per subject
 }
 
 export interface SubjectConfig {
@@ -80,43 +93,32 @@ export interface AnalysisInsights {
   lastUpdated: string;
 }
 
+export const PRESET_COLORS = [
+  { name: 'Emerald', hex: '#10B981', bg: 'bg-emerald-500/20', text: 'text-emerald-400', border: 'border-emerald-500/30' },
+  { name: 'Blue', hex: '#3B82F6', bg: 'bg-blue-500/20', text: 'text-blue-400', border: 'border-blue-500/30' },
+  { name: 'Amber', hex: '#F59E0B', bg: 'bg-amber-500/20', text: 'text-amber-400', border: 'border-amber-500/30' },
+  { name: 'Pink', hex: '#EC4899', bg: 'bg-pink-500/20', text: 'text-pink-400', border: 'border-pink-500/30' },
+  { name: 'Violet', hex: '#8B5CF6', bg: 'bg-violet-500/20', text: 'text-violet-400', border: 'border-violet-500/30' },
+  { name: 'Red', hex: '#EF4444', bg: 'bg-red-500/20', text: 'text-red-400', border: 'border-red-500/30' },
+  { name: 'Cyan', hex: '#06B6D4', bg: 'bg-cyan-500/20', text: 'text-cyan-400', border: 'border-cyan-500/30' },
+  { name: 'Orange', hex: '#F97316', bg: 'bg-orange-500/20', text: 'text-orange-400', border: 'border-orange-500/30' },
+  { name: 'Slate', hex: '#64748B', bg: 'bg-slate-500/20', text: 'text-slate-400', border: 'border-slate-500/30' },
+];
+
+export let dynamicSubjects: SubjectPreference[] = [
+  { id: 'bio', name: 'Biology', color: '#10B981', bg: 'bg-emerald-500/20', text: 'text-emerald-400', border: 'border-emerald-500/30' },
+  { id: 'phys', name: 'Physics', color: '#3B82F6', bg: 'bg-blue-500/20', text: 'text-blue-400', border: 'border-blue-500/30' },
+  { id: 'chem', name: 'Chemistry', color: '#F59E0B', bg: 'bg-amber-500/20', text: 'text-amber-400', border: 'border-amber-500/30' },
+  { id: 'math', name: 'Mathematics', color: '#EC4899', bg: 'bg-pink-500/20', text: 'text-pink-400', border: 'border-pink-500/30' }
+];
+
+export function setDynamicSubjects(subjects: SubjectPreference[]) {
+  dynamicSubjects = subjects;
+}
+
 // 100% Fail-Safe Subject Configuration Engine
 export function getSubjectConfig(sub: string | undefined): SubjectConfig {
-  const mapping: Record<SubjectKey, SubjectConfig> = {
-    bio: {
-      name: 'Biology',
-      color: '#10B981',
-      bg: 'bg-emerald-500/20',
-      text: 'text-emerald-400',
-      border: 'border-emerald-500/30'
-    },
-    phys: {
-      name: 'Physics',
-      color: '#3B82F6',
-      bg: 'bg-blue-500/20',
-      text: 'text-blue-400',
-      border: 'border-blue-500/30'
-    },
-    chem: {
-      name: 'Chemistry',
-      color: '#F59E0B',
-      bg: 'bg-amber-500/20',
-      text: 'text-amber-400',
-      border: 'border-amber-500/30'
-    },
-    math: {
-      name: 'Mathematics',
-      color: '#EC4899',
-      bg: 'bg-pink-500/20',
-      text: 'text-pink-400',
-      border: 'border-pink-500/30'
-    }
-  };
-
-  // If the browser memory passes a corrupted, missing, or undefined subject,
-  // we return a safe generic styling object instead of undefined. 
-  // This instantly stops the "reading 'name' of undefined" React crash.
-  if (!sub || !(sub in mapping)) {
+  if (!sub) {
     return {
       name: 'General Study',
       color: '#64748b',
@@ -126,7 +128,25 @@ export function getSubjectConfig(sub: string | undefined): SubjectConfig {
     };
   }
 
-  return mapping[sub as SubjectKey];
+  const found = dynamicSubjects.find(s => s.id === sub || s.name.toLowerCase() === sub.toLowerCase());
+  if (found) {
+    return {
+      name: found.name,
+      color: found.color,
+      bg: found.bg || 'bg-slate-500/20',
+      text: found.text || 'text-slate-400',
+      border: found.border || 'border-slate-500/30'
+    };
+  }
+
+  // Safe fallback
+  return {
+    name: sub.charAt(0).toUpperCase() + sub.slice(1),
+    color: '#64748b',
+    bg: 'bg-slate-500/20',
+    text: 'text-slate-400',
+    border: 'border-slate-500/30'
+  };
 }
 
 export function calculateNextReviewDate(log: LogItem): string {

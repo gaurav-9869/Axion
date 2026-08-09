@@ -1,3 +1,4 @@
+import { audioManager } from '../lib/audio';
 import React from 'react';
 import { UserSettings } from '../types';
 
@@ -31,7 +32,7 @@ export default function Sidebar({ currentTab, setTab, isOpen, setIsOpen, profile
       )}
 
       {/* Tint-free Frosted Sidebar Frame */}
-      <aside className={`fixed top-0 bottom-0 left-0 w-64 z-[70] transition-transform duration-500 border-r border-white/10 bg-black/40 flex flex-col justify-between p-4 md:translate-x-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
+      <aside className={`fixed top-0 bottom-0 left-0 w-64 z-[70] transition-transform duration-500 border-r border-white/10 ios-glass-panel !rounded-none !border-y-0 !border-l-0 !border-r flex flex-col justify-between p-4 md:translate-x-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
         style={{
           backdropFilter: 'blur(var(--glass-blur, 24px))',
           WebkitBackdropFilter: 'blur(var(--glass-blur, 24px))',
@@ -41,10 +42,12 @@ export default function Sidebar({ currentTab, setTab, isOpen, setIsOpen, profile
           
           {/* Custom Geometric Axion Vector Header */}
           <div className="flex items-center gap-3 px-2 py-3 border-b border-white/10">
-            <svg className="w-8 h-8 transition-colors duration-500" style={{ color: 'var(--theme-primary, #10B981)' }} viewBox="0 0 240 240" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M76 164 L112 74 C115 66, 125 66, 128 74 L140 104" stroke="currentColor" strokeWidth="20" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="M164 164 L120 54 L102 96" stroke="#FFFFFF" strokeWidth="20" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="M92 126 L148 126" stroke="currentColor" strokeWidth="16" strokeLinecap="round" opacity="0.8"/>
+            <svg className="w-8 h-8 drop-shadow-md" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+              <g transform="translate(100, 100)" strokeWidth="40" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M 156 40 L 250 272" stroke="#FFFFFF" fill="none" />
+                <path d="M 156 40 L 62 272" stroke="currentColor" fill="none" style={{ color: 'var(--theme-primary, #10B981)' }} />
+                <path d="M 90 200 Q 156 180 222 200" stroke="currentColor" fill="none" strokeWidth="32" strokeLinecap="round" style={{ color: 'var(--theme-primary, #10B981)' }} />
+              </g>
             </svg>
             <span className="text-xl font-black tracking-widest text-white uppercase">AXION</span>
           </div>

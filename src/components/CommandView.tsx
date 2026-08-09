@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { PlanItem, LogItem, SubjectKey, SessionMode, UserSettings, getFocusScore } from '../types';
 import BatchPlanner from './BatchPlanner';
 import DailyLedger from './DailyLedger';
-import ConceptVelocity from './ConceptVelocity';
 
 interface CommandViewProps {
   morningPlan: PlanItem[];
@@ -36,6 +35,9 @@ export default function CommandView({ morningPlan, setMorningPlan, loggedSession
   const [logSa, setLogSa] = useState('0');
   const [logLa, setLogLa] = useState('0');
 
+  const [logChapter, setLogChapter] = useState('');
+  const [logMcqCount, setLogMcqCount] = useState('0');
+
   const selectPlanForLogging = (plan: PlanItem) => {
     setLogActivePlanId(plan.id);
     setLogSubject(plan.subject);
@@ -55,6 +57,8 @@ export default function CommandView({ morningPlan, setMorningPlan, loggedSession
     setLogVsa('0');
     setLogSa('0');
     setLogLa('0');
+    setLogChapter(plan.chapter || '');
+    setLogMcqCount(plan.mcqCount ? plan.mcqCount.toString() : '0');
   };
 
   const totalPlanned = morningPlan.length;
@@ -84,7 +88,7 @@ export default function CommandView({ morningPlan, setMorningPlan, loggedSession
          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-2">
             
             {/* Goal #8: Uniform Glass Panel Opacity (bg-black/40 with backdrop blur and white borders) */}
-            <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-3xl p-6 flex flex-col gap-2 relative overflow-hidden group shadow-xl">
+            <div className="ios-glass-panel p-6 flex flex-col gap-2 relative overflow-hidden group shadow-xl">
                <div className="flex justify-between items-center text-zinc-400 mb-1">
                   <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">Daily Progress</span>
                   <span className="material-symbols-outlined text-[18px] text-emerald-400">trending_up</span>
@@ -96,7 +100,7 @@ export default function CommandView({ morningPlan, setMorningPlan, loggedSession
                </div>
             </div>
 
-            <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-3xl p-6 flex flex-col gap-2 relative overflow-hidden group shadow-xl">
+            <div className="ios-glass-panel p-6 flex flex-col gap-2 relative overflow-hidden group shadow-xl">
                <div className="flex justify-between items-center text-zinc-400 mb-1">
                   <span className="text-xs font-bold uppercase tracking-wider text-sky-400">Revisions Due</span>
                   <span className="material-symbols-outlined text-[18px] text-sky-400">menu_book</span>
@@ -105,7 +109,7 @@ export default function CommandView({ morningPlan, setMorningPlan, loggedSession
                <p className="text-xs text-zinc-400 mt-2 font-medium">Pending repetition cycles.</p>
             </div>
 
-            <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-3xl p-6 flex flex-col gap-2 relative overflow-hidden group shadow-xl">
+            <div className="ios-glass-panel p-6 flex flex-col gap-2 relative overflow-hidden group shadow-xl">
                <div className="flex justify-between items-center text-zinc-400 mb-1">
                   <span className="text-xs font-bold uppercase tracking-wider text-amber-400">Focus Score</span>
                   <span className="material-symbols-outlined text-[18px] text-amber-400">radar</span>
@@ -116,8 +120,8 @@ export default function CommandView({ morningPlan, setMorningPlan, loggedSession
          </div>
       </div>
 
-      {/* Two-Column Form Split Layout with strictly enforced tablet breakpoints (xl:grid-cols-2) to prevent zooming */}
-      <div className="w-full grid grid-cols-1 xl:grid-cols-2 gap-10 items-start">
+      {/* Two-Column Form Split Layout with strictly enforced tablet breakpoints (lg:grid-cols-2) to prevent zooming */}
+      <div className="w-full grid grid-cols-1 lg:grid-cols-2 gap-10 items-start">
         <BatchPlanner 
           morningPlan={morningPlan} 
           setMorningPlan={setMorningPlan}
@@ -167,14 +171,13 @@ export default function CommandView({ morningPlan, setMorningPlan, loggedSession
           setLogSa={setLogSa}
           logLa={logLa}
           setLogLa={setLogLa}
+          logChapter={logChapter}
+          setLogChapter={setLogChapter}
+          logMcqCount={logMcqCount}
+          setLogMcqCount={setLogMcqCount}
           userSettings={userSettings}
           setUserSettings={setUserSettings}
         />
-      </div>
-      
-      {/* Chart Placement Tray - Wrapped in uniform frosted glass */}
-      <div className="w-full mt-4 bg-black/40 backdrop-blur-md border border-white/10 rounded-[32px] p-6 sm:p-10 shadow-2xl">
-        <ConceptVelocity loggedSessions={loggedSessions} />
       </div>
 
     </div>

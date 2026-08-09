@@ -1,5 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { audioManager } from "../lib/audio";
+import React, { useState, useEffect } from 'react';
 import { UserSettings, getSubjectConfig } from '../types';
+import { auth, syncGoogleAuthWithFirebase } from '../firebase';
+import { migrateLocalLogsToFirestore, showToast } from '../services/dbService';
+import { saveOAuthTokens } from '../lib/auth';
 
 declare var google: any;
 
@@ -11,8 +15,6 @@ interface AccountViewProps {
 export default function AccountView({ userSettings, setUserSettings }: AccountViewProps) {
   const [hasToken, setHasToken] = useState(false);
   const [userProfile, setUserProfile] = useState<{name: string, picture: string, email: string} | null>(null);
-  const [newSubjectName, setNewSubjectName] = useState('');
-  const silentRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchUserProfile = async (token: string) => {
       try {
@@ -27,39 +29,11 @@ export default function AccountView({ userSettings, setUserSettings }: AccountVi
       } catch (err) { console.error("Failed to fetch profile", err); }
   };
 
-  const startSilentRefresh = (clientId: string) => {
-      if (silentRefreshRef.current) clearInterval(silentRefreshRef.current);
-      silentRefreshRef.current = setInterval(() => {
-          try {
-              const client = google.accounts.oauth2.initTokenClient({
-                  client_id: clientId,
-                  scope: 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.file',
-                  prompt: '',
-                  callback: (response: any) => {
-                      if (!response.error && response.access_token) {
-                          localStorage.setItem('gcal_token', response.access_token);
-                          localStorage.setItem('gcal_token_expires', String(Date.now() + response.expires_in * 1000));
-                          setHasToken(true);
-                      } else {
-                          localStorage.removeItem('gcal_token');
-                          localStorage.removeItem('gcal_token_expires');
-                          setHasToken(false);
-                          if (silentRefreshRef.current) clearInterval(silentRefreshRef.current);
-                      }
-                  },
-              });
-              client.requestAccessToken();
-          } catch (e) {
-              console.error("Silent refresh failed", e);
-          }
-      }, 45 * 60 * 1000);
-  };
-
   useEffect(() => {
      const token = localStorage.getItem('gcal_token');
      const expires = localStorage.getItem('gcal_token_expires');
 
-     if (token && expires && Date.now() < Number(expires)) {
+     if (token && expires && Number(expires) > Date.now()) {
          setHasToken(true);
          const profile = localStorage.getItem('gcal_profile');
          if (profile) {
@@ -67,21 +41,11 @@ export default function AccountView({ userSettings, setUserSettings }: AccountVi
          } else {
              fetchUserProfile(token);
          }
-         const clientId = (import.meta as any).env.VITE_GOOGLE_CLIENT_ID;
-         if (clientId && clientId !== 'your_google_client_id_here') {
-             startSilentRefresh(clientId);
-         }
      } else {
-         if (token) {
-             localStorage.removeItem('gcal_token');
-             localStorage.removeItem('gcal_token_expires');
-         }
+         localStorage.removeItem('gcal_token');
+         localStorage.removeItem('gcal_token_expires');
          setHasToken(false);
      }
-
-     return () => {
-         if (silentRefreshRef.current) clearInterval(silentRefreshRef.current);
-     };
   }, []);
 
   const handleConnect = () => {
@@ -93,9 +57,9 @@ export default function AccountView({ userSettings, setUserSettings }: AccountVi
          }
          const client = google.accounts.oauth2.initTokenClient({
              client_id: clientId,
-             scope: 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.file',
+             scope: 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
              prompt: 'consent',
-             callback: (response: any) => {
+             callback: async (response: any) => {
                  if (response.error) {
                      alert("Auth error: " + response.error);
                  } else {
@@ -103,28 +67,45 @@ export default function AccountView({ userSettings, setUserSettings }: AccountVi
                      localStorage.setItem('gcal_token_expires', String(Date.now() + response.expires_in * 1000));
                      setHasToken(true);
                      fetchUserProfile(response.access_token);
-                     startSilentRefresh(clientId);
+
+                     // Google OAuth + Firebase Auth Handshake
+                     try {
+                         showToast("Syncing with Cloud Firestore...", "success");
+                         const firebaseUser = await syncGoogleAuthWithFirebase(null, response.access_token);
+                         if (firebaseUser) {
+                             // Perform one-time migration
+                             await migrateLocalLogsToFirestore(firebaseUser.uid);
+                         }
+                     } catch (fbErr: any) {
+                         console.error("Firebase Handshake sync failed:", fbErr);
+                         showToast(`Firebase Sync Failed: ${fbErr.message || fbErr}`, "error");
+                     }
                  }
              },
          });
          client.requestAccessToken();
-     } catch(err: any) { alert("Error setting up Calendar OAuth: " + err.message); }
+     } catch(err: any) { alert("Error setting up Google Auth: " + err.message); }
   };
 
-  const handleDisconnect = () => {
+  const handleDisconnect = async () => {
       localStorage.removeItem('gcal_token');
       localStorage.removeItem('gcal_profile');
       localStorage.removeItem('gcal_token_expires');
       setHasToken(false);
       setUserProfile(null);
-      if (silentRefreshRef.current) clearInterval(silentRefreshRef.current);
+      try {
+          await auth.signOut();
+          showToast("Successfully disconnected from Google & Firebase Cloud.", "success");
+      } catch (err: any) {
+          console.error("Firebase signout error:", err);
+      }
   };
 
   const exportData = () => {
       const data: Record<string, any> = {};
       for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i);
-          if (key && key.startsWith('pcbm_')) {
+          if (key && (key.startsWith('pcbm_') || key.startsWith('axion_'))) {
              try { data[key] = JSON.parse(localStorage.getItem(key) || ''); }
              catch(e) { data[key] = localStorage.getItem(key); }
           }
@@ -138,23 +119,11 @@ export default function AccountView({ userSettings, setUserSettings }: AccountVi
       URL.revokeObjectURL(url);
   };
 
-  const handleAddSubject = () => {
-      const trimmed = newSubjectName.trim().toLowerCase();
-      if (!trimmed) return;
-      if (!userSettings.activeSubjects.includes(trimmed as any)) {
-          setUserSettings(prev => ({
-              ...prev,
-              activeSubjects: [...prev.activeSubjects, trimmed as any]
-          }));
-      }
-      setNewSubjectName('');
-  };
-
   const allKnownSubjects = Array.from(new Set(['phys', 'chem', 'bio', 'math', ...userSettings.activeSubjects]));
 
   return (
-    <div className="flex flex-col gap-8 w-full max-w-4xl mx-auto text-zinc-100">
-        <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-[32px] p-6 sm:p-10 flex flex-col gap-10 shadow-2xl">
+    <div className="flex flex-col gap-8 w-full max-w-4xl mx-auto text-zinc-100 animate-ios-fade-in">
+        <div className="ios-glass-panel p-6 sm:p-10 flex flex-col gap-10 shadow-2xl">
 
              {/* SECTION 1: USER IDENTITY */}
              <div className="flex flex-col gap-5 border-b border-white/10 pb-8">
@@ -167,7 +136,7 @@ export default function AccountView({ userSettings, setUserSettings }: AccountVi
                         <input
                            type="text" value={userSettings.name}
                            onChange={e => setUserSettings(prev => ({...prev, name: e.target.value}))}
-                           className="w-full bg-black/40 border border-white/10 rounded-xl p-3.5 text-sm outline-none focus:border-white/30 transition-colors"
+                           className="w-full ios-glass-card-nested p-3.5 text-sm outline-none focus:border-white/30 transition-colors"
                            placeholder="e.g. Rahul"
                         />
                      </div>
@@ -176,39 +145,10 @@ export default function AccountView({ userSettings, setUserSettings }: AccountVi
                         <input
                            type="text" value={userSettings.className}
                            onChange={e => setUserSettings(prev => ({...prev, className: e.target.value}))}
-                           className="w-full bg-black/40 border border-white/10 rounded-xl p-3.5 text-sm outline-none focus:border-white/30 transition-colors"
+                           className="w-full ios-glass-card-nested p-3.5 text-sm outline-none focus:border-white/30 transition-colors"
                            placeholder="e.g. 11th PCBM"
                         />
                      </div>
-                 </div>
-             </div>
-
-             {/* SECTION 2: SUBJECT MANAGER */}
-             <div className="flex flex-col gap-5 border-b border-white/10 pb-8">
-                 <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-300 flex items-center gap-2">
-                     <span className="material-symbols-outlined text-[18px]">category</span> Subject Tracking
-                 </h3>
-                 <div>
-                    <label className="block text-[12px] font-medium text-zinc-400 mb-4">Toggle subjects to include them in your daily Planner & Logger menus.</label>
-                    <div className="flex flex-wrap gap-3 mb-5">
-                        {allKnownSubjects.map(sub => {
-                            const isChecked = userSettings.activeSubjects.includes(sub as any);
-                            const conf = getSubjectConfig(sub);
-                            return (
-                               <label key={sub} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border cursor-pointer transition-colors ${isChecked ? 'bg-white/20 border-white/30 text-white' : 'bg-black/20 border-white/5 text-zinc-400 hover:bg-black/40'}`}>
-                                   <input
-                                      type="checkbox" className="hidden" checked={isChecked}
-                                      onChange={(e) => {
-                                          if (e.target.checked) setUserSettings(prev => ({ ...prev, activeSubjects: [...prev.activeSubjects, sub as any] }));
-                                          else setUserSettings(prev => ({ ...prev, activeSubjects: prev.activeSubjects.filter(s => s !== sub) }));
-                                      }}
-                                   />
-                                   <span className="font-semibold text-sm capitalize">{conf.name}</span>
-                                   {isChecked && <span className="material-symbols-outlined text-[16px] ml-1">check</span>}
-                               </label>
-                            );
-                        })}
-                    </div>
                  </div>
              </div>
 
@@ -243,7 +183,7 @@ export default function AccountView({ userSettings, setUserSettings }: AccountVi
                                                  [sub]: Number(e.target.value)
                                              }
                                          }))}
-                                         className="w-full bg-black/40 border border-white/10 rounded-xl p-3.5 text-sm outline-none focus:border-white/30 transition-colors font-mono"
+                                         className="w-full ios-glass-card-nested p-3.5 text-sm outline-none focus:border-white/30 transition-colors font-mono"
                                          placeholder="e.g. 800"
                                          style={{ borderColor: currentVal ? `${conf.color}40` : undefined }}
                                      />
@@ -259,9 +199,9 @@ export default function AccountView({ userSettings, setUserSettings }: AccountVi
              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                  <div className="flex flex-col gap-4">
                      <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-300 flex items-center gap-2">
-                         <span className="material-symbols-outlined text-[18px]">cloud_sync</span> Synchronization
+                         <span className="material-symbols-outlined text-[18px]">cloud_sync</span> Google Calendar Sync
                      </h3>
-                     <div className="flex flex-col justify-between p-6 bg-black/20 border border-white/5 rounded-2xl h-full gap-6">
+                     <div className="flex flex-col justify-between p-6 ios-glass-card-nested h-full gap-6">
                          <div className="flex items-center gap-4">
                              {userProfile ? (
                                  <img src={userProfile.picture} alt="Profile" referrerPolicy="no-referrer" className="w-12 h-12 rounded-full border-2 border-white/20" />
@@ -277,14 +217,13 @@ export default function AccountView({ userSettings, setUserSettings }: AccountVi
                                          <>
                                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
                                              {userProfile?.email}
-                                             <span className="ml-1 text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded font-bold">AUTO-REFRESH ON</span>
                                          </>
                                      ) : 'Requires Google OAuth'}
                                  </p>
                              </div>
                          </div>
                          {hasToken ? (
-                             <button onClick={handleDisconnect} className="w-full text-sm px-6 py-3.5 rounded-xl border border-red-500/50 bg-red-500/10 text-red-400 hover:bg-red-500/20 cursor-pointer transition-colors font-bold mt-auto">Disconnect Account</button>
+                             <button onClick={handleDisconnect} className="w-full text-sm px-6 py-3.5 rounded-xl border border-red-500/50 bg-red-500/10 text-red-400 hover:bg-red-500/20 cursor-pointer transition-colors font-bold mt-auto">Disconnect Calendar</button>
                          ) : (
                              <button onClick={handleConnect} className="w-full text-sm px-6 py-3.5 rounded-xl bg-white text-black hover:bg-zinc-200 cursor-pointer transition-all font-bold mt-auto">Sign In with Google</button>
                          )}
@@ -293,42 +232,20 @@ export default function AccountView({ userSettings, setUserSettings }: AccountVi
 
                  <div className="flex flex-col gap-4">
                      <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-300 flex items-center gap-2">
-                         <span className="material-symbols-outlined text-[18px]">hard_drive</span> Cold Storage
+                         <span className="material-symbols-outlined text-[18px]">hard_drive</span> Cloud Firestore Database
                      </h3>
-                     <div className="flex flex-col justify-between p-6 bg-black/20 border border-white/5 rounded-2xl h-full gap-4">
-                         {hasToken && (
-                             <div className="border-b border-white/10 pb-4 mb-2">
-                                 <h4 className="font-bold text-zinc-100 text-base">Google Drive Sync</h4>
-                                 <p className="text-xs text-zinc-400 mt-1 mb-4 leading-relaxed">Restore your entire application history from the cloud backup.</p>
-                                 <button 
-                                     onClick={async () => {
-                                         const { downloadAndRestoreBackup } = await import('../lib/driveSync');
-                                         const token = localStorage.getItem('gcal_token');
-                                         if (!token) return;
-                                         try {
-                                             const success = await downloadAndRestoreBackup(token);
-                                             if (success) {
-                                                alert("History restored from Google Drive! Reloading...");
-                                                window.location.reload();
-                                             } else {
-                                                alert("No backup file found in Google Drive.");
-                                             }
-                                         } catch (e) {
-                                             alert("Failed to restore backup.");
-                                         }
-                                     }}
-                                     className="w-full text-sm px-6 py-3.5 rounded-xl border border-indigo-500/50 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 cursor-pointer transition-colors font-bold flex items-center justify-center gap-2"
-                                 >
-                                     <span className="material-symbols-outlined text-[18px]">cloud_download</span> Fetch History
-                                 </button>
-                             </div>
-                         )}
+                     <div className="flex flex-col justify-between p-6 ios-glass-card-nested h-full gap-4">
                          <div>
-                             <h4 className="font-bold text-zinc-100 text-base">Local Data Export</h4>
-                             <p className="text-[12px] text-zinc-400 leading-relaxed mt-2">Download a structured JSON copy of all your tracked study hours, goals, and history.</p>
+                             <h4 className="font-bold text-zinc-100 text-base flex items-center gap-2">
+                               <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                               Cloud Persistence
+                             </h4>
+                             <p className="text-[12px] text-zinc-400 leading-relaxed mt-2">
+                               All morning plans, study logs, chat history, and settings are continuously saved to your Firebase Firestore database.
+                             </p>
                          </div>
                          <button onClick={exportData} className="w-full text-sm px-6 py-3.5 rounded-xl bg-white/10 border border-white/20 text-white hover:bg-white/20 cursor-pointer transition-colors flex items-center justify-center gap-2 font-bold mt-auto">
-                             <span className="material-symbols-outlined text-[18px]">download</span> Export Database
+                             <span className="material-symbols-outlined text-[18px]">download</span> Export Database Copy
                          </button>
                      </div>
                  </div>
