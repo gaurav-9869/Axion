@@ -1,0 +1,90 @@
+{
+  "entities": {
+    "LogItem": {
+      "title": "Study Log Item",
+      "description": "Represents a completed or missed study/revision session",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "timestamp": { "type": "number" },
+        "subject": { "type": "string", "maxLength": 64 },
+        "topic": { "type": "string", "maxLength": 256 },
+        "chapter": { "type": "string", "maxLength": 128 },
+        "sessionType": { "type": "string", "enum": ["Study", "Revise", "Exercise"] },
+        "activeMins": { "type": "number" },
+        "distractionMins": { "type": "number" },
+        "recoveryMins": { "type": "number" },
+        "notes": { "type": "string", "maxLength": 1024 },
+        "isMissed": { "type": "boolean" },
+        "synced": { "type": "boolean" },
+        "planId": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["id", "subject", "topic", "sessionType"]
+    },
+    "PlanItem": {
+      "title": "Daily Plan Item",
+      "description": "Represents a planned study or revision session for a day",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "timestamp": { "type": "number" },
+        "subject": { "type": "string", "maxLength": 64 },
+        "topic": { "type": "string", "maxLength": 256 },
+        "chapter": { "type": "string", "maxLength": 128 },
+        "sessionType": { "type": "string", "enum": ["Study", "Revise", "Exercise"] },
+        "targetMins": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "completed"] },
+        "isScheduledRevision": { "type": "boolean" }
+      },
+      "required": ["id", "subject", "topic", "sessionType"]
+    },
+    "UserSettings": {
+      "title": "User Settings",
+      "description": "User preferences and goals",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 128 },
+        "className": { "type": "string", "maxLength": 128 },
+        "uiSounds": { "type": "boolean" }
+      }
+    },
+    "ChatMessage": {
+      "title": "Chat Message",
+      "description": "AI chatbot message record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "role": { "type": "string", "enum": ["user", "model"] },
+        "content": { "type": "string", "maxLength": 4096 },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["id", "role", "content", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/logs/{logId}": {
+      "schema": { "$ref": "#/entities/LogItem" },
+      "description": "User study and revision logs"
+    },
+    "/users/{userId}/plans/{date}": {
+      "schema": "PlanItem",
+      "description": "Daily study plans by date string"
+    },
+    "/users/{userId}/settings/{settingId}": {
+      "schema": "UserSettings",
+      "description": "User settings and preferences"
+    },
+    "/users/{userId}/chats/{chatId}": {
+      "schema": { "$ref": "#/entities/ChatMessage" },
+      "description": "User chat history messages"
+    },
+    "/users/{userId}/refinements/{refId}": {
+      "schema": "UserSettings",
+      "description": "Weekly reflection notes"
+    },
+    "/users/{userId}/revisionQueue/{queueId}": {
+      "schema": "PlanItem",
+      "description": "User scheduled revision queue items"
+    }
+  }
+}

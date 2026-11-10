@@ -1,71 +1,49 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { LogItem, getSubjectConfig } from '../types';
-import { saveStudyLog, saveWeeklyReflection, savePreparationChecklist, getPreparationChecklist, ChecklistItem, getWeeklyReflections, WeeklyReflection } from '../services/dbService';
-import { nanoid } from 'nanoid';
+import { LogItem } from '../types';
+import { useSubjects } from '../context/SubjectContext';
+import { saveStudyLog, saveWeeklyReflection } from '../services/dbService';
 import { audioManager } from '../lib/audio';
+import { AxIcon } from './AxionIcons';
+import { nanoid } from 'nanoid';
 
 interface SundayReviewViewProps {
   loggedSessions: LogItem[];
   setLoggedSessions: React.Dispatch<React.SetStateAction<LogItem[]>>;
 }
 
-const DEFAULT_CHECKLIST: ChecklistItem[] = [
-  { id: '1', text: 'Review weak subjects (Physics/Chemistry MCQ errors)', completed: false },
-  { id: '2', text: 'Verify that this week\'s system refinements are locked in', completed: false },
-  { id: '3', text: 'Update study hours targets in Settings', completed: false },
-  { id: '4', text: 'Schedule follow-up practice sessions', completed: false },
+interface GoalChecklistItem {
+  id: string;
+  title: string;
+  subject: string;
+  done: boolean;
+}
+
+const DEFAULT_GOAL_DIRECTIVES: GoalChecklistItem[] = [
+  { id: 'g-1', title: 'Complete chapter reading & notes', subject: 'bio', done: false },
+  { id: 'g-2', title: 'Solve 45+ timed practice questions', subject: 'phys', done: false },
+  { id: 'g-3', title: 'Clear due revisions', subject: 'chem', done: false }
 ];
 
 export default function SundayReviewView({ loggedSessions, setLoggedSessions }: SundayReviewViewProps) {
+  const { subjects, getSubjectConfig } = useSubjects();
   const [allLogs, setAllLogs] = useState<LogItem[]>([]);
-  
-  // Weekly Reflection States
+
+  const [goalItems, setGoalItems] = useState<GoalChecklistItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('axion_goal_directives');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return DEFAULT_GOAL_DIRECTIVES;
+  });
+  const [newGoalTitle, setNewGoalTitle] = useState('');
+  const [newGoalSubject, setNewGoalSubject] = useState(() => subjects[0]?.id || 'bio');
+
   const [whatWentWell, setWhatWentWell] = useState('');
   const [conceptualGaps, setConceptualGaps] = useState('');
   const [isSavingReview, setIsSavingReview] = useState(false);
-  const [pastReflections, setPastReflections] = useState<WeeklyReflection[]>([]);
-
-  // Active Checklist States
-  const [checklist, setChecklist] = useState<ChecklistItem[]>(DEFAULT_CHECKLIST);
-  const [newTodoText, setNewTodoText] = useState('');
-  const [isChecklistLoaded, setIsChecklistLoaded] = useState(false);
-
-  // Load checklist and weekly reviews from Firestore on mount
-  useEffect(() => {
-    async function fetchData() {
-      try {
-        const dbChecklist = await getPreparationChecklist();
-        if (dbChecklist && dbChecklist.length > 0) {
-          setChecklist(dbChecklist);
-        }
-      } catch (err) {
-        console.error("Failed to load checklist:", err);
-      } finally {
-        setIsChecklistLoaded(true);
-      }
-
-      try {
-          const reflections = await getWeeklyReflections();
-          setPastReflections(reflections);
-      } catch (err) {
-          console.error("Failed to load reflections:", err);
-      }
-    }
-    fetchData();
-  }, []);
-
-  // Save checklist whenever it changes, but only after it has been loaded
-  useEffect(() => {
-    if (isChecklistLoaded) {
-      savePreparationChecklist(checklist);
-    }
-  }, [checklist, isChecklistLoaded]);
 
   useEffect(() => {
-    // Load historical logs for refinements with strict deduplication by ID
     const logMap = new Map<string, LogItem>();
-
-    // Load current loggedSessions props (already synced with Firestore)
     if (Array.isArray(loggedSessions)) {
       loggedSessions.forEach(log => {
         if (log && log.id) {
@@ -73,12 +51,42 @@ export default function SundayReviewView({ loggedSessions, setLoggedSessions }: 
         }
       });
     }
-
     setAllLogs(Array.from(logMap.values()));
   }, [loggedSessions]);
 
+  const saveGoalsToLocal = (updated: GoalChecklistItem[]) => {
+    setGoalItems(updated);
+    try {
+      localStorage.setItem('axion_goal_directives', JSON.stringify(updated));
+    } catch {}
+  };
+
+  const handleAddGoalItem = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newGoalTitle.trim()) return;
+    const item: GoalChecklistItem = {
+      id: nanoid(8),
+      title: newGoalTitle.trim(),
+      subject: newGoalSubject,
+      done: false
+    };
+    saveGoalsToLocal([...goalItems, item]);
+    setNewGoalTitle('');
+    audioManager.playSuccess();
+  };
+
+  const handleToggleGoalItem = (id: string) => {
+    const updated = goalItems.map(g => (g.id === id ? { ...g, done: !g.done } : g));
+    saveGoalsToLocal(updated);
+    audioManager.playSuccess();
+  };
+
+  const handleDeleteGoalItem = (id: string) => {
+    saveGoalsToLocal(goalItems.filter(g => g.id !== id));
+  };
+
   const refinements = useMemo(() => {
-     return allLogs.filter(log => log.systemRefinement && log.systemRefinement.trim() !== '');
+    return allLogs.filter(log => log.systemRefinement && log.systemRefinement.trim() !== '');
   }, [allLogs]);
 
   const handleToggleWorks = async (logId: string, currentVal: boolean | undefined) => {
@@ -88,45 +96,15 @@ export default function SundayReviewView({ loggedSessions, setLoggedSessions }: 
     const updatedWorks = currentVal === undefined ? true : currentVal === true ? false : undefined;
     const updatedLog = { ...targetLog, systemRefinementWorks: updatedWorks };
 
-    // Update local state
-    setAllLogs(prev => prev.map(p => p.id === logId ? updatedLog : p));
+    setAllLogs(prev => prev.map(p => (p.id === logId ? updatedLog : p)));
 
-    // Update parent's loggedSessions state
     if (setLoggedSessions) {
-      setLoggedSessions(prev => prev.map(p => p.id === logId ? updatedLog : p));
+      setLoggedSessions(prev => prev.map(p => (p.id === logId ? updatedLog : p)));
     }
 
-    // Sync directly to Cloud Firestore
     try {
       await saveStudyLog(updatedLog);
-    } catch (err) {
-      console.error("Failed to sync updated refinement to Firestore:", err);
-    }
-  };
-
-  const handleAddChecklistItem = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTodoText.trim()) return;
-    const newItem: ChecklistItem = {
-      id: nanoid(),
-      text: newTodoText.trim(),
-      completed: false
-    };
-    setChecklist(prev => [...prev, newItem]);
-    setNewTodoText('');
-    audioManager.playClick();
-  };
-
-  const handleToggleChecklistItem = (id: string) => {
-    setChecklist(prev => prev.map(item => 
-      item.id === id ? { ...item, completed: !item.completed } : item
-    ));
-    audioManager.playClick();
-  };
-
-  const handleDeleteChecklistItem = (id: string) => {
-    setChecklist(prev => prev.filter(item => item.id !== id));
-    audioManager.playClick();
+    } catch {}
   };
 
   const handleSaveWeeklyReview = async () => {
@@ -137,229 +115,236 @@ export default function SundayReviewView({ loggedSessions, setLoggedSessions }: 
 
     setIsSavingReview(true);
     try {
-      // 1. Save weekly reflection to users/{uid}/refinements/ in Firestore
       await saveWeeklyReflection({
         whatWentWell: whatWentWell.trim(),
         conceptualGaps: conceptualGaps.trim()
       });
 
-      // 2. Refresh past reflections
-      const updatedReflections = await getWeeklyReflections();
-      setPastReflections(updatedReflections);
-
-      // 3. Clear reflections
       setWhatWentWell('');
       setConceptualGaps('');
-      
-      // 4. Reset preparation checklist state & save to Firestore
-      const resetChecklist = DEFAULT_CHECKLIST.map(item => ({ ...item, id: nanoid() }));
-      setChecklist(resetChecklist);
-      await savePreparationChecklist(resetChecklist);
-
       audioManager.playSuccess();
-    } catch (e) {
-      console.error("Failed to archive weekly review:", e);
+    } catch {
       audioManager.playError();
     } finally {
       setIsSavingReview(false);
     }
   };
 
+  const completedGoalsCount = goalItems.filter(g => g.done).length;
+
   return (
-    <div className="flex flex-col gap-8 w-full max-w-7xl mx-auto text-zinc-100 animate-ios-fade-in">
-        
-        {/* Header Board - Clean & Minimal */}
-        <div className="flex flex-col gap-1">
-            <h2 className="text-3xl font-black tracking-tight text-white uppercase">WEEKLY REVIEW</h2>
+    <div className="flex flex-col gap-6 w-full text-slate-100 animate-ios-fade-in">
+      {/* Checklist Card (1-word heading) */}
+      <div className="axion-surface-l2 p-5 sm:p-6 flex flex-col gap-5">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] pb-3.5">
+          <div className="flex items-center gap-2.5">
+            <AxIcon name="goals" className="ax-icon text-emerald-400" />
+            <h3 className="text-sm font-bold text-white tracking-tight">Checklist</h3>
+          </div>
+          <span className="px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-xs font-mono font-bold text-emerald-400 tabular-nums">
+            {completedGoalsCount} / {goalItems.length}
+          </span>
         </div>
 
-        {/* Unified side-by-side 2-column layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
-            
-            {/* Column 1: Weekly Reflection & System Refinement Board (Unified Card) */}
-            <div className="ios-glass-panel p-6 shadow-2xl flex flex-col gap-6">
-                <div className="border-b border-white/5 pb-3">
-                    <h3 className="text-base font-bold tracking-tight text-white uppercase">WEEKLY REFLECTION & SYSTEM REFINEMENT</h3>
+        <div className="flex flex-col gap-2">
+          {goalItems.map(item => {
+            const conf = getSubjectConfig(item.subject);
+            return (
+              <div
+                key={item.id}
+                onClick={() => handleToggleGoalItem(item.id)}
+                className={`glass-inner-well px-4 py-3 rounded-2xl flex items-center justify-between gap-3 cursor-pointer border ${
+                  item.done
+                    ? 'border-white/[0.04] opacity-60'
+                    : 'border-white/[0.08] hover:border-white/[0.16]'
+                }`}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div
+                    className={`w-5 h-5 rounded-md flex items-center justify-center border shrink-0 ${
+                      item.done
+                        ? 'bg-emerald-500 border-emerald-400 text-slate-950'
+                        : 'border-white/25 bg-black/40'
+                    }`}
+                  >
+                    {item.done && <AxIcon name="tick" className="w-3.5 h-3.5 text-slate-950" />}
+                  </div>
+                  <span
+                    className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border shrink-0"
+                    style={{
+                      color: conf.color,
+                      backgroundColor: `${conf.color}18`,
+                      borderColor: `${conf.color}38`
+                    }}
+                  >
+                    {conf.name}
+                  </span>
+                  <span
+                    className={`text-xs sm:text-sm font-medium truncate ${
+                      item.done ? 'line-through text-slate-400' : 'text-white'
+                    }`}
+                  >
+                    {item.title}
+                  </span>
                 </div>
 
-                <div className="flex flex-col gap-4">
-                    <div className="flex flex-col gap-2">
-                        <label className="text-xs font-semibold text-zinc-300">What went well this week?</label>
-                        <textarea
-                            value={whatWentWell}
-                            onChange={(e) => setWhatWentWell(e.target.value)}
-                            placeholder="Describe your study wins, high efficiency sessions, or successful focus methods..."
-                            className="ios-glass-input p-3.5 text-sm text-white placeholder:text-zinc-500 outline-none min-h-[100px] resize-y"
-                        />
-                    </div>
+                <button
+                  type="button"
+                  onClick={e => {
+                    e.stopPropagation();
+                    handleDeleteGoalItem(item.id);
+                  }}
+                  className="text-slate-400 hover:text-rose-400 p-1 cursor-pointer shrink-0"
+                  title="Delete"
+                >
+                  <AxIcon name="delete" className="ax-icon" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
 
-                    <div className="flex flex-col gap-2">
-                        <label className="text-xs font-semibold text-zinc-300">What conceptual gaps need fixing next week?</label>
-                        <textarea
-                            value={conceptualGaps}
-                            onChange={(e) => setConceptualGaps(e.target.value)}
-                            placeholder="Identify difficult topics, bottlenecks, or areas requiring standard practice/re-review..."
-                            className="ios-glass-input p-3.5 text-sm text-white placeholder:text-zinc-500 outline-none min-h-[100px] resize-y"
-                        />
-                    </div>
+        <form onSubmit={handleAddGoalItem} className="flex flex-col sm:flex-row gap-2.5 pt-1">
+          <select
+            value={newGoalSubject}
+            onChange={e => setNewGoalSubject(e.target.value)}
+            className="ios-glass-input px-3 py-2.5 text-xs text-white font-medium sm:w-40"
+          >
+            {subjects.map(s => (
+              <option key={s.id} value={s.id} className="bg-slate-950">
+                {s.name}
+              </option>
+            ))}
+          </select>
+          <input
+            type="text"
+            value={newGoalTitle}
+            onChange={e => setNewGoalTitle(e.target.value)}
+            placeholder="Add target..."
+            className="flex-1 ios-glass-input px-3.5 py-2.5 text-xs text-white"
+          />
+          <button
+            type="submit"
+            className="ax-tap px-4 py-2.5 rounded-xl bg-emerald-500 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+          >
+            <AxIcon name="plus" className="ax-icon text-slate-950" />
+            <span>Add</span>
+          </button>
+        </form>
+      </div>
 
-                    <button
-                        onClick={handleSaveWeeklyReview}
-                        disabled={isSavingReview || (!whatWentWell.trim() && !conceptualGaps.trim())}
-                        className="w-full mt-2 bg-emerald-500/20 hover:bg-emerald-500/35 text-emerald-400 font-bold border border-emerald-500/30 rounded-xl py-3.5 text-xs transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer uppercase tracking-wider"
-                    >
-                        {isSavingReview ? 'Archiving Summary...' : 'Save Review & Archive Summary'}
-                    </button>
-                </div>
+      {/* 2-Column Split: Reflection + Refinements */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        <div className="axion-surface-l2 p-5 sm:p-6 flex flex-col gap-5">
+          <div className="border-b border-white/[0.06] pb-3 flex items-center gap-2.5">
+            <AxIcon name="review" className="ax-icon text-emerald-400" />
+            <h3 className="text-sm font-bold tracking-tight text-white">Reflection</h3>
+          </div>
 
-                {/* Past Weekly Reflections */}
-                {pastReflections.length > 0 && (
-                    <div className="mt-4 border-t border-white/5 pt-6 flex flex-col gap-4">
-                         <div className="flex items-center gap-2">
-                             <span className="material-symbols-outlined text-[20px]" style={{ color: "var(--theme-primary, #10B981)" }}>history</span>
-                             <h4 className="text-sm font-bold text-white uppercase tracking-wider">Recent Weekly Reviews</h4>
-                         </div>
-                         <div className="grid grid-cols-1 gap-3 max-h-[200px] overflow-y-auto pr-2">
-                             {pastReflections.map(ref => (
-                                 <div key={ref.id} className="ios-glass-card-nested p-4 flex flex-col gap-2 relative">
-                                     <span className="absolute top-3 right-3 text-[10px] text-zinc-500 font-bold tracking-wider">
-                                         {new Date(ref.timestamp).toLocaleDateString()}
-                                     </span>
-                                     <div className="flex flex-col">
-                                         <span className="text-[10px] uppercase text-emerald-400 font-bold mb-0.5">What Worked</span>
-                                         <p className="text-xs text-zinc-200 leading-relaxed">{ref.whatWentWell}</p>
-                                     </div>
-                                     <div className="flex flex-col mt-2 pt-2 border-t border-white/5">
-                                         <span className="text-[10px] uppercase text-amber-400 font-bold mb-0.5">Conceptual Gaps</span>
-                                         <p className="text-xs text-zinc-300 leading-relaxed italic">{ref.conceptualGaps}</p>
-                                     </div>
-                                 </div>
-                             ))}
-                         </div>
-                    </div>
-                )}
-
-                {/* Integrated System Refinement List */}
-                <div className="mt-4 border-t border-white/5 pt-6 flex flex-col gap-4">
-                    <div className="flex items-center gap-2">
-                        <span className="material-symbols-outlined text-[20px]" style={{ color: "var(--theme-primary, #10B981)" }}>psychology_alt</span> 
-                        <h4 className="text-sm font-bold text-white uppercase tracking-wider">System Refinement Board</h4>
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-3">
-                        {refinements.length === 0 ? (
-                            <div className="p-6 text-center text-zinc-500 border border-dashed border-white/10 rounded-2xl text-xs">
-                                No system refinements logged yet. Add some in your Tracker!
-                            </div>
-                        ) : (
-                            refinements.map(log => {
-                                const conf = getSubjectConfig(log.subject);
-                                return (
-                                    <div key={log.id} className="flex items-center justify-between p-3.5 ios-glass-card-nested hover:bg-white/5 transition-colors group">
-                                        <div className="flex flex-col gap-1.5 min-w-0">
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded bg-black/40" style={{ color: conf.color, border: `1px solid ${conf.color}40` }}>
-                                                    {conf.name}
-                                                </span>
-                                                <span className="text-[10px] text-zinc-500 font-medium truncate">From: {log.topic}</span>
-                                            </div>
-                                            <p className="text-xs font-semibold text-white break-words">"{log.systemRefinement}"</p>
-                                        </div>
-                                        <div className="flex items-center gap-2 pl-4 shrink-0">
-                                            <button 
-                                                onClick={() => handleToggleWorks(log.id, log.systemRefinementWorks)}
-                                                style={log.systemRefinementWorks === true ? { backgroundColor: "color-mix(in srgb, var(--theme-primary, #10B981) 20%, transparent)", color: "var(--theme-primary, #10B981)", border: "1px solid color-mix(in srgb, var(--theme-primary, #10B981) 30%, transparent)" } : undefined}
-                                                className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
-                                                    log.systemRefinementWorks === true 
-                                                        ? ''
-                                                        : log.systemRefinementWorks === false
-                                                            ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                                                            : 'bg-black/40 text-zinc-600 border border-white/10 hover:border-white/20 hover:text-zinc-400'
-                                                }`}
-                                            >
-                                                {log.systemRefinementWorks === true ? (
-                                                    <span className="material-symbols-outlined font-bold text-[18px]">check</span>
-                                                ) : log.systemRefinementWorks === false ? (
-                                                    <span className="material-symbols-outlined font-bold text-[18px]">close</span>
-                                                ) : (
-                                                    <span className="material-symbols-outlined text-[18px]">rule</span>
-                                                )}
-                                            </button>
-                                        </div>
-                                    </div>
-                                );
-                            })
-                        )}
-                    </div>
-                    
-                    {refinements.length > 0 && (
-                        <div className="p-3.5 rounded-xl bg-sky-500/5 border border-sky-500/10 text-sky-100 flex items-start gap-2.5">
-                            <span className="material-symbols-outlined text-sky-400 text-[18px] shrink-0 mt-0.5">info</span>
-                            <p className="text-[11px] leading-relaxed">
-                                <strong className="text-sky-300 font-semibold block mb-0.5">Study Playbook Integration</strong>
-                                Validated tweaks build your playbook; failed ones prevent repeated mistakes.
-                            </p>
-                        </div>
-                    )}
-                </div>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold text-slate-300">Wins</label>
+              <textarea
+                value={whatWentWell}
+                onChange={e => setWhatWentWell(e.target.value)}
+                placeholder="What went well this week?"
+                className="ios-glass-input p-3.5 text-xs text-white placeholder:text-slate-500 min-h-[115px] resize-y"
+              />
             </div>
 
-            {/* Column 2: Preparation Checklist Card */}
-            <div className="ios-glass-panel p-6 shadow-2xl flex flex-col gap-6">
-                <div className="border-b border-white/5 pb-3">
-                    <h3 className="text-base font-bold tracking-tight text-white uppercase">PREPARATION CHECKLIST</h3>
-                </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold text-slate-300">Gaps</label>
+              <textarea
+                value={conceptualGaps}
+                onChange={e => setConceptualGaps(e.target.value)}
+                placeholder="What needs attention next week?"
+                className="ios-glass-input p-3.5 text-xs text-white placeholder:text-slate-500 min-h-[115px] resize-y"
+              />
+            </div>
 
-                <form onSubmit={handleAddChecklistItem} className="flex gap-2">
-                    <input
-                        type="text"
-                        value={newTodoText}
-                        onChange={(e) => setNewTodoText(e.target.value)}
-                        placeholder="Add preparation objective..."
-                        className="flex-1 ios-glass-input px-3.5 py-3 text-xs text-white placeholder:text-zinc-500 outline-none"
-                    />
-                    <button
-                        type="submit"
-                        className="bg-primary hover:bg-emerald-600 rounded-xl px-4 text-xs font-bold text-white transition-all cursor-pointer"
-                    >
-                        Add
-                    </button>
-                </form>
+            <button
+              onClick={handleSaveWeeklyReview}
+              disabled={isSavingReview || (!whatWentWell.trim() && !conceptualGaps.trim())}
+              className="ax-tap w-full mt-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl py-3 text-xs disabled:opacity-40 cursor-pointer flex items-center justify-center gap-2 shadow-lg"
+            >
+              <AxIcon name="tick" className="ax-icon text-slate-950" />
+              <span>Save</span>
+            </button>
+          </div>
+        </div>
 
-                <div className="flex flex-col gap-2.5 max-h-[50vh] overflow-y-auto pr-1">
-                    {checklist.map(item => (
-                        <div
-                            key={item.id}
-                            className="flex items-center justify-between p-3.5 rounded-xl bg-black/25 border border-white/5 hover:border-white/10 transition-all"
+        <div className="axion-surface-l2 p-5 sm:p-6 flex flex-col gap-5">
+          <div className="border-b border-white/[0.06] pb-3 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <AxIcon name="active" className="ax-icon text-amber-400" />
+              <h3 className="text-sm font-bold text-white tracking-tight">Refinements</h3>
+            </div>
+            <span className="text-xs font-mono text-slate-400 tabular-nums">
+              {refinements.length}
+            </span>
+          </div>
+
+          <div className="flex flex-col gap-2.5">
+            {refinements.length === 0 ? (
+              <div className="p-8 text-center text-slate-500 border border-dashed border-white/10 rounded-2xl text-xs">
+                No refinements logged.
+              </div>
+            ) : (
+              refinements.map(log => {
+                const conf = getSubjectConfig(log.subject);
+                return (
+                  <div
+                    key={log.id}
+                    className="flex items-center justify-between p-3.5 glass-inner-well rounded-2xl hover:border-white/15"
+                  >
+                    <div className="flex flex-col gap-1 min-w-0 pr-3">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
+                          style={{
+                            color: conf.color,
+                            backgroundColor: `${conf.color}18`,
+                            border: `1px solid ${conf.color}38`
+                          }}
                         >
-                            <label className="flex items-center gap-3 cursor-pointer flex-1 min-w-0 pr-2 select-none">
-                                <input
-                                    type="checkbox"
-                                    checked={item.completed}
-                                    onChange={() => handleToggleChecklistItem(item.id)}
-                                    className="accent-emerald-500 cursor-pointer w-4 h-4 shrink-0 rounded"
-                                />
-                                <span className={`text-xs text-zinc-300 truncate ${item.completed ? 'line-through text-zinc-500' : ''}`}>
-                                    {item.text}
-                                </span>
-                            </label>
-                            <button
-                                onClick={() => handleDeleteChecklistItem(item.id)}
-                                className="text-zinc-500 hover:text-red-400 transition-colors p-1"
-                            >
-                                <span className="material-symbols-outlined text-[16px]">delete</span>
-                            </button>
-                        </div>
-                    ))}
-                    {checklist.length === 0 && (
-                        <div className="text-center p-6 text-zinc-500 text-xs italic border border-dashed border-white/5 rounded-xl">
-                            All preparation goals cleared! Add items to plan.
-                        </div>
-                    )}
-                </div>
-            </div>
-
+                          {conf.name}
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-medium truncate">
+                          {log.topic}
+                        </span>
+                      </div>
+                      <p className="text-xs font-semibold text-white break-words">
+                        "{log.systemRefinement}"
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => handleToggleWorks(log.id, log.systemRefinementWorks)}
+                        className={`w-9 h-9 rounded-xl flex items-center justify-center cursor-pointer border ${
+                          log.systemRefinementWorks === true
+                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/35'
+                            : log.systemRefinementWorks === false
+                            ? 'bg-rose-500/20 text-rose-400 border-rose-500/35'
+                            : 'bg-black/40 text-slate-400 border-white/10 hover:border-white/20 hover:text-white'
+                        }`}
+                        title="Toggle status"
+                      >
+                        {log.systemRefinementWorks === true ? (
+                          <AxIcon name="tick" className="ax-icon text-emerald-400" />
+                        ) : log.systemRefinementWorks === false ? (
+                          <AxIcon name="close" className="ax-icon text-rose-400" />
+                        ) : (
+                          <span className="text-[10px] font-mono">?</span>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
+      </div>
     </div>
   );
 }

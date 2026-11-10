@@ -1,6 +1,37 @@
 declare var google: any;
 
 /**
+ * Canonical Google OAuth Client ID for Axion
+ */
+export const GOOGLE_CLIENT_ID = '183072882456-66r0omapo2603he1jgulpcvvvfue099h.apps.googleusercontent.com';
+
+/**
+ * Returns the sanitized Google OAuth Client ID, ensuring no invalid_client errors
+ * from missing, quoted, or outdated environment variables.
+ */
+export const getGoogleClientId = (): string => {
+    const rawEnvId = (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID;
+    if (typeof rawEnvId === 'string') {
+        const cleaned = rawEnvId.replace(/^["']|["']$/g, '').trim();
+        if (cleaned === GOOGLE_CLIENT_ID) {
+            return cleaned;
+        }
+    }
+    return GOOGLE_CLIENT_ID;
+};
+
+/**
+ * Canonical Google OAuth scopes required by Axion:
+ * - Google Calendar Events: for syncing study, practice, and spaced repetition blocks
+ * - User Profile & Email: for user identity and Firebase authentication handshake
+ */
+export const GOOGLE_OAUTH_SCOPES = [
+    'https://www.googleapis.com/auth/calendar.events',
+    'https://www.googleapis.com/auth/userinfo.profile',
+    'https://www.googleapis.com/auth/userinfo.email',
+].join(' ');
+
+/**
  * Saves Google OAuth access tokens to localStorage with calculated expiration.
  * Subtracts a 5-minute safety buffer (300,000 ms) from expiresAt to ensure
  * tokens are always refreshed BEFORE they expire.
@@ -26,17 +57,26 @@ export const ensureValidToken = async (): Promise<string | null> => {
         return token;
     }
 
-    const clientId = (import.meta as any).env.VITE_GOOGLE_CLIENT_ID;
-    if (!clientId || clientId === 'your_google_client_id_here') return null;
+    const clientId = getGoogleClientId();
+    if (!clientId) {
+        console.warn("[Google OAuth] Client ID is missing or not configured.");
+        return null;
+    }
+
+    if (typeof google === 'undefined' || !google.accounts?.oauth2) {
+        console.error("[Google OAuth] Google Identity Services library (google.accounts.oauth2) is not loaded.");
+        return null;
+    }
 
     return new Promise((resolve) => {
         try {
             const client = google.accounts.oauth2.initTokenClient({
                 client_id: clientId,
-                scope: 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.file',
+                scope: GOOGLE_OAUTH_SCOPES,
                 prompt: '', // Silent background request
                 callback: (response: any) => {
                     if (response.error || !response.access_token) {
+                        console.error("[Google OAuth] Silent token request failed:", response);
                         resolve(null);
                     } else {
                         // Save the new token with the safety-buffered expiration
@@ -44,9 +84,14 @@ export const ensureValidToken = async (): Promise<string | null> => {
                         resolve(response.access_token);
                     }
                 },
+                error_callback: (error: any) => {
+                    console.error("[Google OAuth] Silent token request error:", error);
+                    resolve(null);
+                },
             });
             client.requestAccessToken();
         } catch (e) {
+            console.error("[Google OAuth] Unexpected exception during silent token renewal:", e);
             resolve(null);
         }
     });

@@ -2,13 +2,16 @@ import { initializeApp } from "firebase/app";
 import {
   getAuth,
   GoogleAuthProvider,
+  signInWithPopup,
   signInWithCredential,
   onAuthStateChanged,
   setPersistence,
   browserLocalPersistence
 } from "firebase/auth";
 import {
-  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   collection,
   doc,
   setDoc,
@@ -19,18 +22,20 @@ import {
   orderBy,
   limit,
   writeBatch,
+  deleteDoc,
   getDocFromServer,
-  enableIndexedDbPersistence
+  serverTimestamp
 } from "firebase/firestore";
+import firebaseConfigJson from '../firebase-applet-config.json';
 
 const firebaseConfig = {
-  apiKey: "AIzaSyAxVuD43MhwbOZVL5bNkg2YoC-Xl4bsG_E",
-  authDomain: "axion-374c6.firebaseapp.com",
-  projectId: "axion-374c6",
-  storageBucket: "axion-374c6.firebasestorage.app",
-  messagingSenderId: "856978421941",
-  appId: "1:856978421941:web:6fcfde8649005a8293a6fc",
-  measurementId: "G-0BTPXB15VR"
+  apiKey: firebaseConfigJson.apiKey,
+  authDomain: firebaseConfigJson.authDomain,
+  projectId: firebaseConfigJson.projectId,
+  storageBucket: firebaseConfigJson.storageBucket,
+  messagingSenderId: firebaseConfigJson.messagingSenderId,
+  appId: firebaseConfigJson.appId,
+  measurementId: firebaseConfigJson.measurementId || undefined
 };
 
 export const app = initializeApp(firebaseConfig);
@@ -41,23 +46,12 @@ setPersistence(auth, browserLocalPersistence).catch((err) => {
   console.warn("Firebase Auth setPersistence failed:", err);
 });
 
-export const db = getFirestore(app);
-
-if (typeof window !== "undefined") {
-  try {
-    enableIndexedDbPersistence(db).catch((err) => {
-      if (err.code === "failed-precondition") {
-        console.warn("Firestore offline persistence failed-precondition (multiple tabs open)");
-      } else if (err.code === "unimplemented") {
-        console.warn("Firestore offline persistence unimplemented in current browser");
-      } else {
-        console.warn("Firestore offline persistence notice:", err);
-      }
-    });
-  } catch (err) {
-    console.warn("Firestore persistence initialization error:", err);
-  }
-}
+// Connect to the (default) Firestore database in Mumbai (asia-south1)
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  })
+});
 
 async function testConnection() {
   try {
@@ -85,6 +79,7 @@ export const syncGoogleAuthWithFirebase = async (googleIdToken: string | null, g
 
 export {
   GoogleAuthProvider,
+  signInWithPopup,
   signInWithCredential,
   onAuthStateChanged,
   collection,
@@ -97,5 +92,7 @@ export {
   orderBy,
   limit,
   writeBatch,
-  getDocFromServer
+  deleteDoc,
+  getDocFromServer,
+  serverTimestamp
 };

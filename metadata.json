@@ -1,5 +1,5 @@
 {
-  "name": "PCBM Command Center",
+  "name": "Axion",
   "description": "Progressive Web App designed for an Android tablet with Google Calendar and AI sync.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

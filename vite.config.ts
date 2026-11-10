@@ -8,7 +8,7 @@ export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
   
   const githubRepo = process.env.GITHUB_REPOSITORY;
-  const basePath = githubRepo ? `/${githubRepo.split('/')[1]}/` : './';
+  const basePath = githubRepo ? `/${githubRepo.split('/')[1]}/` : '/';
 
   return {
     base: basePath,
@@ -16,33 +16,85 @@ export default defineConfig(({mode}) => {
       react(), 
       tailwindcss(),
       VitePWA({
-        registerType: 'autoUpdate',
-        injectRegister: 'auto',
+        registerType: 'prompt',
+        injectRegister: null,
+        includeAssets: ['apple-touch-icon.png', 'logo.svg', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'favicon-32.png'],
         manifest: {
-          short_name: "Axion",
-          name: "Axion Workspace",
+          id: '/',
+          name: 'Axion',
+          short_name: 'Axion',
+          description: 'Progressive Web App designed for an Android tablet with Google Calendar and AI sync.',
+          theme_color: '#10B981',
+          background_color: '#060a12',
+          display: 'standalone',
+          orientation: 'any',
+          start_url: '/',
+          scope: '/',
           icons: [
             {
-              src: "icon-192.png",
-              type: "image/png",
-              sizes: "192x192",
-              purpose: "any maskable"
+              src: 'icon-192.png',
+              sizes: '192x192',
+              type: 'image/png',
+              purpose: 'any',
             },
             {
-              src: "icon-512.png",
-              type: "image/png",
-              sizes: "512x512",
-              purpose: "any maskable"
-            }
+              src: 'icon-512.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'any',
+            },
+            {
+              src: 'icon-maskable-512.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'maskable',
+            },
+            {
+              src: 'icon-512.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'any maskable',
+            },
           ],
-          start_url: ".",
-          scope: ".",
-          background_color: "#060a12",
-          theme_color: "#10B981",
-          display: "standalone",
-          orientation: "any"
-        }
-      })
+        },
+        workbox: {
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+          runtimeCaching: [
+            {
+              urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'google-fonts-cache',
+                expiration: {
+                  maxEntries: 10,
+                  maxAgeSeconds: 60 * 60 * 24 * 365,
+                },
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+              },
+            },
+            {
+              urlPattern: /^https:\/\/fonts\.gstatic\.com\/.*/i,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'gstatic-fonts-cache',
+                expiration: {
+                  maxEntries: 10,
+                  maxAgeSeconds: 60 * 60 * 24 * 365,
+                },
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+              },
+            },
+          ],
+        },
+        devOptions: {
+          enabled: true,
+          type: 'module',
+        },
+      }),
     ],
     resolve: {
       alias: {
@@ -50,7 +102,7 @@ export default defineConfig(({mode}) => {
       },
     },
     server: {
-      hmr: process.env.DISABLE_HMR !== 'true',
+      hmr: false,
       allowedHosts: true,
       host: '0.0.0.0',
     },

@@ -1,0 +1,301 @@
+/* ============================================================================
+ * AXION OS MASTER DESIGN TOKENS & KINETIC ENGINE
+ * ============================================================================ */
+
+:root {
+  --ease-axion: cubic-bezier(0.16, 1, 0.3, 1);
+  --ax-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --ax-spring: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Spatial Surface Elevation Hierarchy */
+  --ax-surface-l1: rgba(13, 19, 31, 0.82);
+  --ax-surface-l2: rgba(18, 25, 40, 0.65);
+  --ax-surface-l3: rgba(18, 26, 45, 0.95);
+  --ax-surface-l4: rgba(10, 14, 26, 0.94);
+
+  --ax-border-hairline: rgba(255, 255, 255, 0.08);
+  --ax-border-subtle: rgba(255, 255, 255, 0.06);
+  --ax-shadow-l1: 0 20px 48px -12px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+/* 1. Root Transparency Mandate */
+html,
+body,
+#root {
+  background: transparent !important;
+}
+
+/* 2. Universal Tactile Press (Scale Compression) */
+.ax-pressable,
+.ax-tap,
+button:not(:disabled) {
+  transition:
+    transform 140ms var(--ease-axion),
+    opacity 140ms ease,
+    background-color 140ms var(--ease-axion),
+    border-color 140ms var(--ease-axion),
+    box-shadow 140ms var(--ease-axion),
+    color 140ms var(--ease-axion);
+}
+
+.ax-pressable:active,
+.ax-tap:active,
+button:active:not(:disabled) {
+  transform: scale(0.965) !important;
+  opacity: 0.92;
+}
+
+/* 3. Segmented Pill Glider (Hardware-Accelerated) */
+.ax-glider-pill {
+  transition: transform 220ms var(--ease-axion), background-color 220ms var(--ease-axion);
+  will-change: transform;
+}
+
+/* 4. Tactile Checkbox & SVG Stroke Settle */
+@keyframes axCheckboxSettle {
+  0% {
+    transform: scale(0.92);
+  }
+  55% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1.0);
+  }
+}
+
+@keyframes axCheckStrokeDraw {
+  from {
+    stroke-dashoffset: 24;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.ax-checkbox-checked {
+  animation: axCheckboxSettle 140ms var(--ease-axion) forwards;
+}
+
+.ax-checkbox-tick {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 0;
+  animation: axCheckStrokeDraw 140ms var(--ease-axion) forwards;
+}
+
+/* 5. Origin-Bound Popover (Unified Filter / Calendar / Dropdowns) */
+@keyframes axPopoverOpen {
+  0% {
+    opacity: 0;
+    transform: scale(0.95) translateY(-6px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.ax-popover-origin {
+  transform-origin: top right;
+  background: rgba(13, 19, 31, 0.94);
+  -webkit-backdrop-filter: blur(28px);
+  backdrop-filter: blur(28px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7);
+  animation: axPopoverOpen 220ms var(--ease-axion) forwards;
+}
+
+/* 6. Search Input Dynamic Focus */
+.ax-search-shell {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition:
+    background-color 200ms var(--ease-axion),
+    border-color 200ms var(--ease-axion),
+    box-shadow 200ms var(--ease-axion);
+}
+
+.ax-search-shell:focus-within {
+  background: #0a101d;
+  border-color: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.14);
+}
+
+.ax-search-icon {
+  transition: transform 200ms var(--ease-axion), color 200ms var(--ease-axion);
+}
+
+.ax-search-shell:focus-within .ax-search-icon {
+  transform: rotate(90deg);
+  color: #10b981;
+}
+
+@keyframes axClearScaleIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.ax-clear-btn {
+  animation: axClearScaleIn 160ms var(--ease-axion) forwards;
+}
+
+/* 7. Directional Route Motion & View Transitions */
+@keyframes axRouteEnter {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 22px, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes axRouteExit {
+  0% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(0, -18px, 0);
+  }
+}
+
+.ax-route-enter {
+  animation: axRouteEnter 300ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.ax-route-exit {
+  transform: translate3d(0, -18px, 0);
+  opacity: 0;
+  transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1), opacity 200ms ease;
+  pointer-events: none;
+}
+
+/* Autonomous Sliding Dock Glider */
+.dock-active-glider {
+  position: absolute;
+  border-radius: 14px;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.25);
+  transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1), height 200ms ease, width 200ms ease;
+  pointer-events: none;
+}
+
+/* Right-Docked Task/Log Drawer Slide-In Physics */
+@keyframes axRightDrawerSlideIn {
+  0% {
+    opacity: 0;
+    transform: translate3d(100%, 0, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.ax-right-drawer-enter {
+  animation: axRightDrawerSlideIn 280ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* 8. Back Navigation Gesture & Inspector Transitions */
+@keyframes axBackPanelDismiss {
+  0% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(100%, 0, 0);
+  }
+}
+
+.ax-panel-dismiss-right {
+  animation: axBackPanelDismiss 240ms var(--ease-axion) forwards;
+}
+
+.ax-bg-canvas-scale {
+  transition: transform 260ms var(--ease-axion), opacity 260ms var(--ease-axion);
+}
+
+@keyframes axInspectorDrift {
+  0% {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.ax-inspector-drift {
+  animation: axInspectorDrift 200ms var(--ease-axion) forwards;
+}
+
+/* 9. Revision Inline Deletion Slide-Collapse & Merge Mechanics */
+.ax-item-exit {
+  transition:
+    transform 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 200ms ease,
+    max-height 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    margin 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    padding 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  transform: translateX(28px);
+  opacity: 0;
+  max-height: 0px !important;
+  margin-top: 0px !important;
+  margin-bottom: 0px !important;
+  padding-top: 0px !important;
+  padding-bottom: 0px !important;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+@keyframes axMergeBarSpring {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 100%) scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+.ax-merge-bar {
+  animation: axMergeBarSpring 260ms var(--ease-axion) forwards;
+}
+
+@keyframes axConsolidateDissolve {
+  0% {
+    transform: scale(0.98);
+    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.75), 0 0 28px rgba(16, 185, 129, 0.45);
+  }
+  100% {
+    transform: scale(1.0);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  }
+}
+
+.ax-merge-flash {
+  animation: axConsolidateDissolve 300ms var(--ease-axion) forwards;
+}
+
+/* 10. Canonical Crisp Vector Iconography */
+.ax-icon-white {
+  stroke: #ffffff;
+  stroke-width: 1.75px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+}

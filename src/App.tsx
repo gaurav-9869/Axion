@@ -1,29 +1,35 @@
 import { audioManager } from "./lib/audio";
 import { ensureValidToken } from './lib/auth';
-import React, { useState, useEffect, useLayoutEffect } from 'react';
-import { PlanItem, LogItem, UserSettings, getLocalDateString, getFocusScore, getSubjectConfig } from './types';
-import CommandView from './components/CommandView';
+import React, { useState, useEffect, useLayoutEffect, useMemo } from 'react';
+import { PlanItem, LogItem, UserSettings, getLocalDateString, getTotalStudyTime, deduplicateLogs } from './types';
+import Tracker from './components/Tracker';
+import Revision from './components/Revision';
 import ArchiveView from './components/ArchiveView';
 import AccountView from './components/AccountView';
 import AnalysisView from './components/AnalysisView';
 import SettingsView from './components/SettingsView';
 import SundayReviewView from './components/SundayReviewView';
-import Sidebar from './components/Sidebar';
+import NavigationDock from './components/NavigationDock';
+import EnvironmentalCanvas from './components/EnvironmentalCanvas';
 import Chatbot from './components/Chatbot';
+import { OfflineIndicator } from './components/OfflineIndicator';
+import { AxionIconSprite, AxIcon } from './components/AxionIcons';
 import { nanoid } from 'nanoid';
+import { generateAdaptiveRecommendations } from './lib/revision/revisionEngine';
 import { auth, onAuthStateChanged } from './firebase';
 import { 
   getDailyPlan, 
   saveDailyPlan, 
   getStudyLogs, 
-  saveStudyLog, 
+  saveStudyLogsBatch,
   getUserSettings, 
   saveUserSettings, 
   migrateLocalStorageToFirestore,
   migrateLocalLogsToFirestore,
-  getSubjectPreferences,
-  showToast
+  getSubjectPreferences
 } from './services/dbService';
+import { syncDailyMasterBlocksToCalendar } from './services/calendarService';
+import { useSubjects } from './context/SubjectContext';
 
 interface AnimatedCounterProps {
   value: number;
@@ -63,71 +69,32 @@ function AnimatedCounter({ value, suffix = '', duration = 1000 }: AnimatedCounte
   return <span>{count}{suffix}</span>;
 }
 
-function getClosestGoogleCalendarColorId(hexColor: string): string {
-  let hex = hexColor.replace('#', '');
-  if (hex.length === 3) {
-    hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
-  }
-  const r = parseInt(hex.substring(0, 2), 16) || 0;
-  const g = parseInt(hex.substring(2, 4), 16) || 0;
-  const b = parseInt(hex.substring(4, 6), 16) || 0;
-
-  const googleColors = [
-    { id: '1', r: 164, g: 189, b: 252 }, // Lavender
-    { id: '2', r: 122, g: 231, b: 191 }, // Sage
-    { id: '3', r: 219, g: 173, b: 255 }, // Grape
-    { id: '4', r: 255, g: 136, b: 124 }, // Flamingo
-    { id: '5', r: 251, g: 215, b: 91 },  // Banana
-    { id: '6', r: 255, g: 184, b: 120 }, // Tangerine
-    { id: '7', r: 70,  g: 214, b: 219 }, // Peacock
-    { id: '8', r: 225, g: 225, b: 225 }, // Graphite
-    { id: '9', r: 84,  g: 132, b: 237 }, // Blueberry
-    { id: '10', r: 81, g: 183, b: 73 },  // Basil
-    { id: '11', r: 220, g: 33,  b: 39 },  // Tomato
-  ];
-
-  let closestId = '9';
-  let minDistance = Infinity;
-
-  for (const gc of googleColors) {
-    const distance = Math.sqrt(
-      Math.pow(r - gc.r, 2) +
-      Math.pow(g - gc.g, 2) +
-      Math.pow(b - gc.b, 2)
-    );
-    if (distance < minDistance) {
-      minDistance = distance;
-      closestId = gc.id;
-    }
-  }
-
-  return closestId;
-}
-
 export default function App() {
+  const { subjects } = useSubjects();
   const [currentTab, setCurrentTab] = useState('command');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [activeDate] = useState(() => getLocalDateString(0));
   const [morningPlan, setMorningPlan] = useState<PlanItem[]>([]);
   const [loggedSessions, setLoggedSessions] = useState<LogItem[]>([]);
-  const [userSettings, setUserSettings] = useState<UserSettings>({
-      name: '',
-      className: '',
-      activeSubjects: ['bio', 'phys', 'chem', 'math'],
-      subjectGoals: {},
-      subjectPageTotals: {},
-      uiSounds: localStorage.getItem('axion_ui_sounds') !== 'false'
-  });
+  const [userSettings, setUserSettings] = useState<UserSettings>(() => ({
+    name: '',
+    className: '',
+    activeSubjects: subjects.map(s => s.id),
+    subjectGoals: {},
+    subjectPageTotals: {},
+    uiSounds: localStorage.getItem('axion_ui_sounds') !== 'false'
+  }));
 
   const [isLoaded, setIsLoaded] = useState(false);
   const [profileImg, setProfileImg] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<any>(null);
 
-  // Core Glass Styling Depth States
-  const [glassBlur, setGlassBlur] = useState(24);
+  // Core Glass Styling Depth States (Inherited from DESIGN.md and surface system)
+  const [glassBlur, setGlassBlur] = useState(28);
   const [glassOpacity, setGlassOpacity] = useState(0.00);
-  const [panelOpacity, setPanelOpacity] = useState(0.55);
+  const [panelOpacity, setPanelOpacity] = useState(0.82);
 
-  // Victory screen celebration modal state
+  // Day Summary celebration modal state
   const [victoryData, setVictoryData] = useState<{
     focusTime: number;
     pagesCovered: number;
@@ -135,18 +102,6 @@ export default function App() {
     quote: string;
   } | null>(null);
 
-  // Progressive Web Application (PWA) Service Worker Registration
-  useEffect(() => {
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js')
-          .then(() => console.log("Axion PWA Installed"))
-          .catch((err) => console.error("PWA Setup Halted", err));
-      });
-    }
-  }, []);
-
-  // Premium Tactile Audio Feedback Loop
   useEffect(() => {
     audioManager.enabled = userSettings.uiSounds !== false;
 
@@ -167,7 +122,6 @@ export default function App() {
     };
   }, [userSettings.uiSounds]);
 
-  // Fixed Wallpaper Engine Loading Cycles & Glass Styles
   useLayoutEffect(() => {
     const customUrl = localStorage.getItem('custom_wallpaper_url');
     const customColor = localStorage.getItem('custom_wallpaper_color');
@@ -183,15 +137,15 @@ export default function App() {
     if (!root) return;
     
     if (customUrl) {
-       root.style.setProperty('--wallpaper-url', `url("${customUrl}")`);
+      root.style.setProperty('--wallpaper-url', customUrl.startsWith('url(') || customUrl.startsWith('radial-gradient') || customUrl.startsWith('linear-gradient') ? customUrl : `url("${customUrl}")`);
     } else {
-       root.style.setProperty('--wallpaper-url', 'radial-gradient(circle at top left, #1e1b4b 0%, #0a0f18 100%)');
+      root.style.setProperty('--wallpaper-url', 'radial-gradient(circle at 20% 20%, rgba(16, 185, 129, 0.14) 0%, rgba(14, 116, 144, 0.10) 35%, #060a12 85%)');
     }
     
-    root.style.setProperty('--theme-primary', customColor || '#10B981');
-    root.style.setProperty('--glass-blur', `${savedBlur ? Number(savedBlur) : 24}px`);
+    root.style.setProperty('--theme-primary', customColor || '#10b981');
+    root.style.setProperty('--glass-blur', `${savedBlur ? Number(savedBlur) : 28}px`);
     root.style.setProperty('--wallpaper-dim', savedOpacity ? String(savedOpacity) : '0.00');
-    root.style.setProperty('--panel-opacity', savedPanelOpacity ? String(savedPanelOpacity) : '0.55');
+    root.style.setProperty('--panel-opacity', savedPanelOpacity ? String(savedPanelOpacity) : '0.82');
   }, []);
 
   useEffect(() => {
@@ -206,40 +160,101 @@ export default function App() {
     localStorage.setItem('ios_panel_opacity', String(panelOpacity));
   }, [glassBlur, glassOpacity, panelOpacity, isLoaded]);
 
-  const [currentUser, setCurrentUser] = useState<any>(undefined);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-
-  // Global Toast event handler
   useEffect(() => {
-    const handleToast = (e: Event) => {
+    const handleLogDeleted = (e: Event) => {
       const detail = (e as CustomEvent).detail;
-      if (detail && detail.message) {
-        setToast({ message: detail.message, type: detail.type });
-        const timer = setTimeout(() => {
-          setToast(null);
-        }, 4000);
-        return () => clearTimeout(timer);
+      if (detail && detail.logId) {
+        setLoggedSessions(prev => prev.filter(l => l.id !== detail.logId));
       }
     };
-    window.addEventListener('axion-toast', handleToast);
-    return () => window.removeEventListener('axion-toast', handleToast);
-  }, []);
+    window.addEventListener('axion-log-deleted', handleLogDeleted);
 
-  // Firebase Auth State Listener & LocalStorage Hydration Bridge
+    const handleLogCreated = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail && detail.log) {
+        setLoggedSessions(prev => {
+          const existingIdx = prev.findIndex(l => 
+            l.id === detail.log.id || (detail.log.planId && l.planId === detail.log.planId)
+          );
+          if (existingIdx >= 0) {
+            return prev.map((l, i) => i === existingIdx ? detail.log : l);
+          }
+          return [detail.log, ...prev];
+        });
+      }
+    };
+    window.addEventListener('axion-log-created', handleLogCreated);
+
+    const handleLogUpdated = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail && detail.log) {
+        setLoggedSessions(prev => {
+          const existingIdx = prev.findIndex(l => 
+            l.id === detail.log.id || (detail.log.planId && l.planId === detail.log.planId)
+          );
+          if (existingIdx >= 0) {
+            return prev.map((l, i) => i === existingIdx ? detail.log : l);
+          }
+          return [detail.log, ...prev];
+        });
+      }
+    };
+    window.addEventListener('axion-log-updated', handleLogUpdated);
+
+    const handlePlanCreated = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail && detail.plan && detail.date === activeDate) {
+        setMorningPlan(prev => {
+          const exists = prev.some(p => p.id === detail.plan.id);
+          return exists ? prev : [...prev, detail.plan];
+        });
+      }
+    };
+    window.addEventListener('axion-plan-created', handlePlanCreated);
+
+    const handlePlanUpdated = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail && detail.plan && detail.date === activeDate) {
+        setMorningPlan(prev => prev.map(p => p.id === detail.plan.id ? detail.plan : p));
+      }
+    };
+    window.addEventListener('axion-plan-updated', handlePlanUpdated);
+
+    const handlePlanDeleted = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail && detail.planId && detail.date === activeDate) {
+        setMorningPlan(prev => prev.filter(p => p.id !== detail.planId));
+      }
+    };
+    window.addEventListener('axion-plan-deleted', handlePlanDeleted);
+
+    const handleProfileUpdated = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      setProfileImg(detail?.picture || null);
+    };
+    window.addEventListener('axion-profile-updated', handleProfileUpdated);
+
+    return () => {
+      window.removeEventListener('axion-log-deleted', handleLogDeleted);
+      window.removeEventListener('axion-log-created', handleLogCreated);
+      window.removeEventListener('axion-log-updated', handleLogUpdated);
+      window.removeEventListener('axion-plan-created', handlePlanCreated);
+      window.removeEventListener('axion-plan-updated', handlePlanUpdated);
+      window.removeEventListener('axion-plan-deleted', handlePlanDeleted);
+      window.removeEventListener('axion-profile-updated', handleProfileUpdated);
+    };
+  }, [activeDate]);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setCurrentUser(user || null);
       if (user) {
-        console.log("Firebase Auth persistently synced. UID:", user.uid);
         try {
-          // One-time LocalStorage hydration check
           const localLogs = localStorage.getItem("axion_local_logs");
           const migrated = localStorage.getItem("migrated_to_firebase");
           if (localLogs && migrated !== "true") {
             await migrateLocalLogsToFirestore(user.uid);
           }
 
-          // Auto-migration for fallback keys
           if (!localStorage.getItem('axion_firebase_migrated')) {
             await migrateLocalStorageToFirestore(user.uid);
             localStorage.setItem('axion_firebase_migrated', 'true');
@@ -248,13 +263,16 @@ export default function App() {
           console.warn("Auth migration notice:", err);
         }
       }
+      setCurrentUser(user || null);
     });
     return () => unsubscribe();
   }, []);
 
-  // Synchronized Firestore + Local Storage Load Engine
   useEffect(() => {
     if (currentUser === undefined) return;
+
+    let isCancelled = false;
+    setIsLoaded(false);
 
     async function initializeData() {
       try {
@@ -264,16 +282,16 @@ export default function App() {
             const parsedProfile = JSON.parse(savedProfile);
             if (parsedProfile?.picture) setProfileImg(parsedProfile.picture);
           } catch {}
+        } else if (currentUser?.photoURL) {
+          setProfileImg(currentUser.photoURL);
         }
 
-        // Load custom subject preferences
         try {
           await getSubjectPreferences();
         } catch (err) {
           console.warn("getSubjectPreferences failed during hydration:", err);
         }
 
-        // 1. Fetch user settings with error guard
         let settings = null;
         try {
           settings = await getUserSettings();
@@ -281,18 +299,6 @@ export default function App() {
           console.warn("getUserSettings failed during hydration, falling back to local:", err);
         }
 
-        if (settings) {
-          setUserSettings({
-            name: settings.name || '',
-            className: settings.className || '',
-            activeSubjects: Array.isArray(settings.activeSubjects) ? settings.activeSubjects : ['bio', 'phys', 'chem', 'math'],
-            subjectGoals: settings.subjectGoals || {},
-            subjectPageTotals: settings.subjectPageTotals || {},
-            uiSounds: settings.uiSounds !== undefined ? settings.uiSounds : (localStorage.getItem('axion_ui_sounds') !== 'false')
-          });
-        }
-
-        // 2. Fetch daily plan with error guard
         let plan: PlanItem[] = [];
         try {
           plan = await getDailyPlan(activeDate);
@@ -300,47 +306,81 @@ export default function App() {
           console.warn("getDailyPlan failed during hydration, falling back to local:", err);
         }
 
-        // Automated Spaced Repetition (SR) Injection
-        const todayStr = getLocalDateString(0);
-        const tomorrowStr = getLocalDateString(1);
-        
         let allLogs: LogItem[] = [];
         try {
-          allLogs = await getStudyLogs();
+          allLogs = await getStudyLogs(500);
         } catch (err) {
           console.warn("getStudyLogs failed during hydration, falling back to local:", err);
         }
-        
-        allLogs.forEach(log => {
-          if (log.nextReviewDate && (log.nextReviewDate === todayStr || log.nextReviewDate === tomorrowStr)) {
-            const alreadyExists = plan.some(p => p.topic === log.topic && p.subject === log.subject);
-            if (!alreadyExists) {
+
+        if (isCancelled) return;
+
+        try {
+          const recommendations = generateAdaptiveRecommendations(allLogs, activeDate);
+          const dueTodayRecs = recommendations.filter(
+            r => r.urgency === 'due_today' || r.targetReviewDate === activeDate
+          );
+
+          dueTodayRecs.forEach(rec => {
+            const alreadyInPlan = plan.some(
+              p => p.subject === rec.subject &&
+                   p.topic.toLowerCase() === rec.topic.toLowerCase() &&
+                   p.sessionType === 'Revise'
+            );
+
+            if (!alreadyInPlan) {
+              const isAlreadyLoggedToday = allLogs.some(l => {
+                const isToday = l.timestamp 
+                  ? getLocalDateString(0, new Date(l.timestamp)) === activeDate 
+                  : l.nextReviewDate === activeDate;
+                return isToday && l.sessionType === 'Revise' && l.subject === rec.subject && l.topic.toLowerCase() === rec.topic.toLowerCase();
+              });
+
               plan.push({
-                id: nanoid(),
+                id: `sched-rev-${nanoid(8)}`,
                 timestamp: Date.now(),
-                subject: log.subject,
-                topic: log.topic,
+                subject: rec.subject as any,
+                topic: rec.topic,
+                chapter: rec.chapter,
                 sessionType: 'Revise',
-                targetMins: 30,
-                status: 'pending'
+                targetMins: rec.retentionBand === 'Very Weak' || rec.retentionBand === 'Weak' ? 45 : 30,
+                status: isAlreadyLoggedToday ? 'completed' : 'pending',
+                isScheduledRevision: true
               });
             }
-          }
-        });
+          });
+        } catch (err) {
+          console.warn("Error calculating today's scheduled revisions:", err);
+        }
+
+        if (settings) {
+          setUserSettings({
+            name: settings.name || '',
+            className: settings.className || '',
+            activeSubjects: Array.isArray(settings.activeSubjects) && settings.activeSubjects.length > 0 ? settings.activeSubjects : subjects.map(s => s.id),
+            subjectGoals: settings.subjectGoals || {},
+            subjectPageTotals: settings.subjectPageTotals || {},
+            uiSounds: settings.uiSounds !== undefined ? settings.uiSounds : (localStorage.getItem('axion_ui_sounds') !== 'false')
+          });
+        }
 
         setMorningPlan(plan);
-        setLoggedSessions(allLogs);
+        setLoggedSessions(deduplicateLogs(allLogs));
       } catch (e) {
         console.error("Data load error:", e);
       } finally {
-        setIsLoaded(true);
+        if (!isCancelled) {
+          setIsLoaded(true);
+        }
       }
     }
 
     initializeData();
+    return () => {
+      isCancelled = true;
+    };
   }, [activeDate, currentUser]);
 
-  // Persistence Hook
   useEffect(() => {
     if (!isLoaded) return;
 
@@ -350,7 +390,7 @@ export default function App() {
       try {
         await saveDailyPlan(activeDate, morningPlan);
       } catch (err) {
-        console.log("saveDailyPlan deferred or handled quietly:", err);
+        console.log("saveDailyPlan deferred:", err);
       }
 
       if (isCancelled) return;
@@ -358,7 +398,7 @@ export default function App() {
       try {
         await saveUserSettings(userSettings);
       } catch (err) {
-        console.log("saveUserSettings deferred or handled quietly:", err);
+        console.log("saveUserSettings deferred:", err);
       }
     }
 
@@ -371,223 +411,9 @@ export default function App() {
 
   const [isSyncing, setIsSyncing] = useState(false);
 
-  const syncDailyBlocksToCalendar = async (todayLogs: LogItem[]) => {
-    const token = await ensureValidToken();
-    if (!token) {
-      throw new Error("Google Calendar authentication token is missing or expired.");
-    }
-
-    const todayDate = getLocalDateString(0);
-
-    // Group logs by sessionType
-    const studyLogs = todayLogs.filter(l => !l.isMissed && l.sessionType === 'Study');
-    const practiceLogs = todayLogs.filter(l => !l.isMissed && l.sessionType === 'Exercise');
-    const reviseLogs = todayLogs.filter(l => !l.isMissed && l.sessionType === 'Revise');
-    const missedLogs = todayLogs.filter(l => l.isMissed);
-
-    // Sync today's blocks
-    const syncBlock = async (type: 'Study' | 'Practice' | 'Revise', logs: LogItem[], colorId: string) => {
-      if (logs.length === 0) return;
-
-      const hash = `pcbm_${type.toLowerCase()}_${todayDate}`;
-      const title = `[${type}] Daily ${type === 'Study' ? 'Study' : type === 'Practice' ? 'Practice' : 'Revision'} Block`;
-
-      // Build rich description
-      let description = `=== DAILY COMPOSITE BLOCK: ${type.toUpperCase()} ===\n\n`;
-      logs.forEach(log => {
-        const subjectName = getSubjectConfig(log.subject).name;
-        description += `• Subject: ${subjectName}\n`;
-        description += `  - Topic: ${log.topic}\n`;
-        if (log.chapter) {
-          description += `  - Chapter: ${log.chapter}\n`;
-        }
-        if (log.mcqCount !== undefined) {
-          description += `  - MCQs Completed: ${log.mcqCount}\n`;
-        }
-        if (log.startPage !== undefined && log.endPage !== undefined && log.endPage > log.startPage) {
-          description += `  - Pages: ${log.startPage} - ${log.endPage}\n`;
-        }
-        if (log.activeMins) {
-          description += `  - Active Mins: ${log.activeMins}\n`;
-        }
-        if (log.retentionScore !== undefined) {
-          description += `  - Retention Level: ${log.retentionScore}/10\n`;
-        }
-        if (log.notes) {
-          description += `  - Notes: ${log.notes}\n`;
-        }
-        description += `\n`;
-      });
-
-      const totalMins = logs.reduce((acc, l) => acc + (l.activeMins || 0), 0);
-      description += `Total Active Time: ${totalMins} minutes\n`;
-
-      // Check if event already exists
-      let existingEvent: any = null;
-      try {
-        const queryParam = encodeURIComponent(`pcbmHash=${hash}`);
-        const listRes = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?privateExtendedProperty=${queryParam}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (listRes.ok) {
-          const listData = await listRes.json();
-          if (listData.items && listData.items.length > 0) {
-            existingEvent = listData.items[0];
-          }
-        }
-      } catch (e) {
-        console.error("Failed to query existing calendar event:", e);
-      }
-
-      if (existingEvent) {
-        // PATCH existing event
-        const patchRes = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${existingEvent.id}`, {
-          method: 'PATCH',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            summary: title,
-            description: description,
-            colorId: colorId
-          })
-        });
-        if (!patchRes.ok) throw new Error(`PATCH failed for ${hash}`);
-      } else {
-        // POST new event
-        const endStr = getLocalDateString(1);
-        const postRes = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            summary: title,
-            description: description,
-            start: { date: todayDate },
-            end: { date: endStr },
-            colorId: colorId,
-            extendedProperties: {
-              private: { pcbmHash: hash }
-            }
-          })
-        });
-        if (!postRes.ok) throw new Error(`POST failed for ${hash}`);
-      }
-    };
-
-    // Today's study, practice, and revise blocks
-    const studyColorId = studyLogs.length > 0 ? getClosestGoogleCalendarColorId(getSubjectConfig(studyLogs[0].subject).color) : '9';
-    const practiceColorId = practiceLogs.length > 0 ? getClosestGoogleCalendarColorId(getSubjectConfig(practiceLogs[0].subject).color) : '6';
-    const reviseColorId = reviseLogs.length > 0 ? getClosestGoogleCalendarColorId(getSubjectConfig(reviseLogs[0].subject).color) : '10';
-
-    await syncBlock('Study', studyLogs, studyColorId);
-    await syncBlock('Practice', practiceLogs, practiceColorId);
-    await syncBlock('Revise', reviseLogs, reviseColorId);
-
-    // Missed blocks
-    if (missedLogs.length > 0) {
-      await syncBlock('Revise', missedLogs, '11');
-    }
-
-    // Spaced Repetition (SR) 3-Interval Escalation Engine
-    // Schedule revision: tomorrow (+1), next Sunday, and +28 days
-    if (studyLogs.length > 0) {
-      const today = new Date();
-      // Calculate days until next Sunday (0 is Sunday, 1 is Monday, etc.)
-      const daysUntilNextSunday = today.getDay() === 0 ? 7 : 7 - today.getDay();
-
-      const intervals = [
-        { offset: 1, label: 'Day +1 (Tomorrow)' },
-        { offset: daysUntilNextSunday, label: 'Next Sunday' },
-        { offset: 28, label: 'Day +28 (Monthly)' }
-      ];
-
-      for (const interval of intervals) {
-        const targetDate = getLocalDateString(interval.offset);
-        const targetHash = `pcbm_revise_${targetDate}`;
-
-        // Construct revision content to append
-        let srContent = `\nScheduled Spaced Repetition Revision (${interval.label}) for topics studied on ${todayDate}:\n`;
-        studyLogs.forEach(log => {
-          const subjectName = getSubjectConfig(log.subject).name;
-          srContent += `• [${subjectName}] ${log.topic}`;
-          if (log.chapter) {
-            srContent += ` (Ch. ${log.chapter})`;
-          }
-          if (log.mcqCount !== undefined) {
-            srContent += ` (${log.mcqCount} MCQs)`;
-          }
-          if (log.startPage !== undefined && log.endPage !== undefined && log.endPage > log.startPage) {
-            srContent += ` (Pages ${log.startPage} - ${log.endPage})`;
-          }
-          srContent += `\n`;
-        });
-
-        // Check if a Revision Block already exists on that target date
-        let existingSrEvent: any = null;
-        try {
-          const queryParam = encodeURIComponent(`pcbmHash=${targetHash}`);
-          const listRes = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?privateExtendedProperty=${queryParam}`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
-          if (listRes.ok) {
-            const listData = await listRes.json();
-            if (listData.items && listData.items.length > 0) {
-              existingSrEvent = listData.items[0];
-            }
-          }
-        } catch (e) {
-          console.error(`Failed to query SR event for ${targetDate}:`, e);
-        }
-
-        if (existingSrEvent) {
-          // PATCH existing SR event: append the new revision details
-          const updatedDescription = (existingSrEvent.description || '') + '\n' + srContent;
-          const patchRes = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${existingSrEvent.id}`, {
-            method: 'PATCH',
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              description: updatedDescription
-            })
-          });
-          if (!patchRes.ok) console.warn(`Failed to PATCH existing SR event on ${targetDate}`);
-        } else {
-          // POST new SR event
-          const targetEndDate = getLocalDateString(interval.offset + 1);
-          const srColorId = studyLogs.length > 0 ? getClosestGoogleCalendarColorId(getSubjectConfig(studyLogs[0].subject).color) : '10';
-          const postRes = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              summary: `[Revise] Scheduled Revision Block`,
-              description: `=== SCHEDULED SPACED REPETITION REVISION ===\n` + srContent,
-              start: { date: targetDate },
-              end: { date: targetEndDate },
-              colorId: srColorId,
-              extendedProperties: {
-                private: { pcbmHash: targetHash }
-              }
-            })
-          });
-          if (!postRes.ok) console.warn(`Failed to POST new SR event on ${targetDate}`);
-        }
-      }
-    }
-  };
-
   const handleCloseDay = async () => {
     setIsSyncing(true);
     try {
-      // 1. Maintain a deterministic, pure local scope for calculating missed logs
       const currentLogged = [...loggedSessions];
       const loggedPlanIds = new Set(currentLogged.map(l => l.planId).filter(Boolean));
       
@@ -613,96 +439,69 @@ export default function App() {
         }
       });
 
-      // 2. Sequentially await saveStudyLog for each constructed missed log BEFORE setting component state
-      for (const missedLog of missedLogsToSave) {
+      if (missedLogsToSave.length > 0) {
         try {
-          await saveStudyLog(missedLog);
+          await saveStudyLogsBatch(missedLogsToSave);
         } catch (err) {
-          console.warn("Failed to persist missed log to Firestore:", err);
+          console.warn("Deferred batch save:", err);
         }
       }
 
-      // 3. Build complete logs collection and perform state update
-      const finalLogs = [...currentLogged, ...missedLogsToSave];
+      const finalLogs = deduplicateLogs([...currentLogged, ...missedLogsToSave]);
       
-      // Determine today's logs for composite sync
       const getLogDate = (log: LogItem) => {
         if (log.timestamp) {
-          return new Date(log.timestamp).toISOString().split('T')[0];
+          return getLocalDateString(0, new Date(log.timestamp));
         }
-        return getLocalDateString(0);
+        return log.nextReviewDate || getLocalDateString(0);
       };
       
       const todayLogs = finalLogs.filter(l => getLogDate(l) === activeDate);
 
-      // 4. Determine Google Calendar Token Validity silently
       let calendarSyncEnabled = true;
       try {
         const token = await ensureValidToken();
         if (!token) {
           calendarSyncEnabled = false;
         }
-      } catch (tokenErr) {
-        console.warn("Silent ensureValidToken failed before starting loop:", tokenErr);
+      } catch {
         calendarSyncEnabled = false;
       }
 
-      let successCount = 0;
-      let hasCalendarAuthError = !calendarSyncEnabled;
-
       if (calendarSyncEnabled) {
         try {
-          // Sync today's blocks and future SR schedules
-          await syncDailyBlocksToCalendar(todayLogs);
-          
-          // Mark all today's logs as synced
+          await syncDailyMasterBlocksToCalendar(todayLogs, activeDate);
           todayLogs.forEach(l => {
             l.synced = true;
           });
-          
-          // Save updated logs back to Firestore/local storage
-          for (const l of todayLogs) {
-            await saveStudyLog(l);
-          }
-          
-          successCount = todayLogs.length;
-        } catch (calErr: any) {
-          console.warn("Google Calendar sync failed for composite blocks:", calErr);
-          hasCalendarAuthError = true;
-          // Even if Google Calendar fails, ensure all logs are saved to Firestore (as unsynced)
-          for (const l of todayLogs) {
-            await saveStudyLog(l);
-          }
+          await saveStudyLogsBatch(todayLogs);
+        } catch {
+          await saveStudyLogsBatch(todayLogs);
         }
       } else {
-        // Calendar not enabled: save today's logs directly to Firestore (unsynced)
-        for (const l of todayLogs) {
-          await saveStudyLog(l);
-        }
+        await saveStudyLogsBatch(todayLogs);
       }
 
       setLoggedSessions([...finalLogs]);
 
-      // Calculate celebration metrics
       const activeTodayLogs = todayLogs.filter(l => !l.isMissed);
       const missedTodayLogs = todayLogs.filter(l => l.isMissed);
-      const focusTime = activeTodayLogs.reduce((acc, l) => acc + (l.activeMins || 0), 0);
+      const focusTime = activeTodayLogs.reduce((acc, l) => acc + getTotalStudyTime(l), 0);
       const pagesCovered = activeTodayLogs.filter(l => l.sessionType === 'Study').reduce((acc, l) => acc + (l.endPage && l.startPage ? Math.max(0, l.endPage - l.startPage) : 0), 0);
-      const questionsSolved = activeTodayLogs.reduce((acc, l) => acc + (l.vsaCount || 0) + (l.saCount || 0) + (l.laCount || 0), 0);
+      const questionsSolved = activeTodayLogs.reduce((acc, l) => acc + (l.mcqCount || 0) + (l.vsaCount || 0) + (l.saCount || 0) + (l.laCount || 0), 0);
       const missedCount = missedTodayLogs.length;
       
       let quoteFeedback = "Focus is a muscle, and you just gave it a world-class workout.";
       if (focusTime >= 120 || pagesCovered >= 25 || questionsSolved >= 20) {
-        quoteFeedback = `Incredible focus today! You put in a legendary ${focusTime} minutes of deep work across ${pagesCovered} pages and solved ${questionsSolved} questions. High productivity score achieved!`;
+        quoteFeedback = `Great focus today: ${focusTime} minutes across ${pagesCovered} pages and ${questionsSolved} questions.`;
       } else if (missedCount >= 2) {
-        quoteFeedback = `You faced some heavy friction today with ${missedCount} missed sessions. But remember: showing up and logging it is part of the growth loop. Let's fine-tune your targets tomorrow!`;
+        quoteFeedback = `Logged ${missedCount} unfinished tasks. Tomorrow's queue is ready.`;
       } else if (focusTime > 0) {
-        quoteFeedback = `Consistent effort! You completed ${pagesCovered} pages, solved ${questionsSolved} questions, and accumulated ${focusTime} minutes of focus. Every brick counts toward your foundation.`;
+        quoteFeedback = `Completed ${pagesCovered} pages, ${questionsSolved} questions, and ${focusTime} minutes of focus.`;
       } else {
-        quoteFeedback = "A rest day logged on the books. Sleep, recovery, and down-time are vital inputs for peak mental output tomorrow!";
+        quoteFeedback = "Rest day recorded. Ready for tomorrow.";
       }
 
-      // Trigger Celebration Victory Modal
       setVictoryData({
         focusTime,
         pagesCovered,
@@ -711,140 +510,135 @@ export default function App() {
       });
 
       audioManager.playChime();
-
     } catch (err: any) {
       console.error("Error in handleCloseDay:", err);
-      showToast("Logs saved locally & Firestore! Calendar sync deferred.", "error");
     } finally {
       setIsSyncing(false);
     }
   };
 
-  const renderHeaderTitle = () => {
-      switch(currentTab) {
-          case 'archive': 
-            return (
-              <div className="flex items-center gap-2.5">
-                <span className="material-symbols-outlined text-zinc-400 text-[22px]">inventory_2</span>
-                <span>Archive</span>
-              </div>
-            );
-          case 'account': 
-            return (
-              <div className="flex items-center gap-2.5">
-                <span className="material-symbols-outlined text-zinc-400 text-[22px]">badge</span>
-                <span>My Account</span>
-              </div>
-            );
-          case 'analysis': 
-            return (
-              <div className="flex items-center gap-2.5">
-                <span className="material-symbols-outlined text-zinc-400 text-[22px]">analytics</span>
-                <span>Analysis</span>
-              </div>
-            );
-          case 'settings': 
-            return (
-              <div className="flex items-center gap-2.5">
-                <span className="material-symbols-outlined text-zinc-400 text-[22px]">tune</span>
-                <span>Settings</span>
-              </div>
-            );
-          case 'weekly':
-            return (
-              <div className="flex items-center gap-2.5">
-                <span className="material-symbols-outlined text-amber-400 text-[22px]">check_box</span>
-                <span>Weekly Review</span>
-              </div>
-            );
-          default: 
-            return (
-              <div className="flex items-center gap-2.5">
-                <span className="material-symbols-outlined text-zinc-400 text-[22px]">dashboard</span>
-                <span>Tracker</span>
-              </div>
-            );
-      }
+  const handleOpenNewTask = () => {
+    audioManager.playClick();
+    if (currentTab !== 'command') {
+      setCurrentTab('command');
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('axion-open-new-task'));
+      }, 80);
+    } else {
+      window.dispatchEvent(new CustomEvent('axion-open-new-task'));
+    }
   };
 
+  const revisionDueCount = useMemo(() => {
+    return morningPlan.filter(p => p.sessionType === 'Revise' && p.status !== 'completed').length;
+  }, [morningPlan]);
+
+  // Strictly 1-2 word headings with zero subtitles
+  const renderHeaderMeta = () => {
+    switch (currentTab) {
+      case 'archive':
+        return { title: 'Archive', icon: 'archive' };
+      case 'account':
+        return { title: 'Account', icon: 'account' };
+      case 'analysis':
+        return { title: 'Analysis', icon: 'analysis' };
+      case 'revision':
+        return { title: 'Revision', icon: 'revise' };
+      case 'settings':
+        return { title: 'Settings', icon: 'settings' };
+      case 'weekly':
+        return { title: 'Goals', icon: 'goals' };
+      default:
+        return { title: 'Tracker', icon: 'tasks' };
+    }
+  };
+
+  const headerMeta = renderHeaderMeta();
+
   return (
-    <div className="flex min-h-screen max-w-full overflow-x-hidden relative text-zinc-100 bg-transparent">
-      
-      {/* Structural wallpaper canvas backing layout layer */}
-      <div className="ios-wallpaper-canvas" />
+    <div className="h-screen w-screen flex p-2.5 md:p-4 gap-3 md:gap-4 overflow-hidden box-border relative text-slate-100 bg-transparent">
+      {/* Canonical Axion 2px Vector Sprite */}
+      <AxionIconSprite />
 
-      {/* Wallpaper Dimming Overlay Controls */}
-      <div className="ios-wallpaper-dimmer" />
+      {/* Level 0: Environmental Backdrop & Vignette Scrim */}
+      <EnvironmentalCanvas userSettings={userSettings} />
 
-      {/* Sync Status Toast Component */}
-      {toast && (
-        <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-2.5 px-5 py-3 rounded-2xl shadow-xl border backdrop-blur-xl ${
-          toast.type === 'success' 
-            ? 'bg-emerald-950/85 border-emerald-500/30 text-emerald-200' 
-            : 'bg-red-950/85 border-red-500/30 text-red-200'
-        }`}>
-          <span className="material-symbols-outlined text-[20px]">
-            {toast.type === 'success' ? 'cloud_done' : 'cloud_off'}
-          </span>
-          <span className="text-sm font-semibold tracking-wide">{toast.message}</span>
-        </div>
-      )}
-
-      <Sidebar 
-        currentTab={currentTab} 
-        setTab={setCurrentTab} 
-        isOpen={isSidebarOpen} 
-        setIsOpen={setIsSidebarOpen} 
+      {/* Responsive Spatial Navigation Dock (Tablet & Desktop Persistent, Mobile Capsule) */}
+      <NavigationDock
+        currentTab={currentTab}
+        setTab={setCurrentTab}
+        isOpen={isSidebarOpen}
+        setIsOpen={setIsSidebarOpen}
         profileImg={profileImg}
         userSettings={userSettings}
+        revisionBadgeCount={revisionDueCount}
       />
 
-      <div className={`flex-1 flex flex-col transition-all duration-300 relative z-10 md:ml-64`}>
-        
-        {/* Top Header Bar */}
-        <header 
-          className="ios-glass-panel rounded-t-none rounded-b-[24px] border-x-0 border-t-0 flex justify-between items-center w-[calc(100%-2rem)] mx-4 mt-4 px-6 py-4 sticky top-0 z-50 transition-all duration-500"
-        >
-          <div className="flex items-center gap-4">
-            <button 
-              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="md:hidden hover:bg-white/10 transition-all p-2 rounded-full cursor-pointer"
-              style={{ color: 'var(--theme-primary, #10B981)' }}
-            >
-              <span className="material-symbols-outlined">menu</span>
-            </button>
-            <h1 className="text-xl font-bold tracking-tight text-white animate-ios-fade-in" key={currentTab}>
-                {renderHeaderTitle()}
-            </h1>
+      {/* Central Main Operational Window (Level 1 Surface) */}
+      <main className="flex-1 axion-surface-l1 rounded-[24px] flex flex-col overflow-hidden relative z-10 min-w-0">
+        {/* Top Operational Header Bar */}
+        <header className="px-5 md:px-8 py-4 border-b border-white/[0.06] flex items-center justify-between shrink-0 gap-4 bg-black/10">
+          <div className="flex items-center gap-3.5 min-w-0">
+            <div className="flex items-center gap-3 min-w-0">
+              <div
+                className="hidden sm:flex w-8 h-8 rounded-[10px] items-center justify-center border shrink-0"
+                style={{
+                  backgroundColor: 'rgba(255,255,255,0.05)',
+                  borderColor: 'rgba(255,255,255,0.08)'
+                }}
+              >
+                <AxIcon name={headerMeta.icon} className="w-5 h-5 text-white ax-icon-white" />
+              </div>
+              <h1 className="text-[17px] md:text-[19px] font-bold tracking-tight text-white truncate">
+                {headerMeta.title}
+              </h1>
+            </div>
           </div>
 
-          <div className="flex items-center gap-4">
-            <div 
-              className="w-10 h-10 rounded-full border relative flex items-center justify-center cursor-pointer group transition-all bg-black/40" 
-              style={{ borderColor: 'rgba(255, 255, 255, 0.1)' }}
+          {/* Right Header Controls */}
+          <div className="flex items-center gap-2.5 shrink-0">
+            {currentTab === 'command' && (
+              <button
+                onClick={handleCloseDay}
+                disabled={isSyncing}
+                className="ax-pressable px-3.5 py-2 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-xs font-semibold text-white flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                title="Close Day"
+              >
+                <AxIcon
+                  name="resync"
+                  className={`w-5 h-5 text-white ax-icon-white ${isSyncing ? 'animate-spin' : ''}`}
+                />
+                <span className="hidden sm:inline">
+                  {isSyncing ? 'Closing...' : 'Close Day'}
+                </span>
+              </button>
+            )}
+
+            <button
               onClick={() => setCurrentTab('account')}
+              className="ax-pressable w-9 h-9 rounded-xl border border-white/10 bg-black/40 hover:border-white/25 flex items-center justify-center relative cursor-pointer overflow-hidden shrink-0"
+              title="Account"
             >
-               <div className="w-full h-full flex items-center justify-center font-bold text-sm text-zinc-200 overflow-hidden rounded-full">
-                 {profileImg ? (
-                     <img src={profileImg} alt="User Avatar" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
-                 ) : (
-                     userSettings.name ? userSettings.name.charAt(0).toUpperCase() : 'A'
-                 )}
-               </div>
-               <div 
-                 className="absolute -bottom-1 -right-1 w-4.5 h-4.5 rounded-full border flex items-center justify-center text-zinc-400 group-hover:text-white transition-colors shadow-md z-10 bg-zinc-900"
-                 style={{ borderColor: 'rgba(255, 255, 255, 0.1)' }}
-               >
-                 <span className="material-symbols-outlined text-[11px]" style={{ color: 'var(--theme-primary)' }}>settings</span>
-               </div>
-            </div>
+              {profileImg ? (
+                <img
+                  src={profileImg}
+                  alt="Avatar"
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <AxIcon name="account" className="w-4 h-4 text-white ax-icon-white" />
+              )}
+            </button>
           </div>
         </header>
 
-        <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 pb-24 flex flex-col overflow-y-auto min-w-0">
+        {/* Scrollable Operational Viewport (pb-32 on mobile to guarantee clear scroll above dock & fixed buttons) */}
+        <div className="flex-1 overflow-y-auto px-5 md:px-8 py-6 pb-32 md:pb-24 min-w-0">
+          <div key={currentTab} className="ax-route-enter max-w-7xl w-full mx-auto flex flex-col gap-6">
             {currentTab === 'command' && (
-              <CommandView 
-                morningPlan={morningPlan} 
+              <Tracker
+                morningPlan={morningPlan}
                 setMorningPlan={setMorningPlan}
                 loggedSessions={loggedSessions}
                 setLoggedSessions={setLoggedSessions}
@@ -852,23 +646,43 @@ export default function App() {
                 setUserSettings={setUserSettings}
               />
             )}
-            {currentTab === 'archive' && <ArchiveView />}
+            {currentTab === 'revision' && (
+              <Revision
+                logs={loggedSessions}
+                setLogs={setLoggedSessions}
+                currentPlan={morningPlan}
+                setMorningPlan={setMorningPlan}
+              />
+            )}
+            {currentTab === 'archive' && (
+              <ArchiveView
+                logs={loggedSessions}
+                setLogs={setLoggedSessions}
+              />
+            )}
             {currentTab === 'analysis' && (
-              <AnalysisView 
-                loggedSessions={loggedSessions} 
-                userSettings={userSettings} 
+              <AnalysisView
+                loggedSessions={loggedSessions}
+                userSettings={userSettings}
                 setUserSettings={setUserSettings}
               />
             )}
-            {currentTab === 'weekly' && <SundayReviewView loggedSessions={loggedSessions} setLoggedSessions={setLoggedSessions} />}
+            {currentTab === 'weekly' && (
+              <SundayReviewView
+                loggedSessions={loggedSessions}
+                setLoggedSessions={setLoggedSessions}
+              />
+            )}
             {currentTab === 'account' && (
-              <AccountView 
-                userSettings={userSettings} 
+              <AccountView
+                userSettings={userSettings}
                 setUserSettings={setUserSettings}
               />
             )}
             {currentTab === 'settings' && (
-              <SettingsView userSettings={userSettings} setUserSettings={setUserSettings} 
+              <SettingsView
+                userSettings={userSettings}
+                setUserSettings={setUserSettings}
                 glassBlur={glassBlur}
                 setGlassBlur={setGlassBlur}
                 glassOpacity={glassOpacity}
@@ -877,91 +691,92 @@ export default function App() {
                 setPanelOpacity={setPanelOpacity}
               />
             )}
-        </main>
+          </div>
+        </div>
+      </main>
 
-        {/* Footer */}
-        {currentTab === 'command' && (
-            <footer 
-              className="ios-glass-panel rounded-b-none rounded-t-[28px] border-x-0 border-b-0 w-[calc(100%-2rem)] mx-4 py-4 flex flex-col justify-center items-center gap-3 mt-auto transition-all duration-500"
-            >
-              <button 
-                onClick={handleCloseDay} 
-                disabled={isSyncing}
-                className="font-bold hover:underline font-headline text-sm tracking-wide transition-all cursor-pointer active:opacity-70"
-                style={{ color: 'var(--theme-primary, #10B981)' }}
-              >
-                 {isSyncing ? 'Saving & Syncing...' : 'Save Logs & Sync to Cloud'}
-              </button>
-              <p className="text-error/90 font-medium text-[11px] px-6 text-center max-w-xl bg-error/5 border border-error/10 py-1.5 rounded-xl">
-                Note: Planned tasks left incomplete at the end of the day will be recorded as missed.
-              </p>
-            </footer>
-        )}
+      {/* Unified Fixed Floating Action Cluster (Level 3 Floating Elements, z-[80] sits above mobile dock z-[75]) */}
+      <div className="fixed bottom-[74px] right-3.5 md:bottom-6 md:right-6 z-[80] flex items-center gap-2.5 md:gap-3 pointer-events-auto">
+        {/* Fixed New Task Button: Circular 48px (+) on mobile, expanded pill on desktop */}
+        <button
+          onClick={handleOpenNewTask}
+          className="ax-pressable h-12 w-12 md:w-auto md:px-5 rounded-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow-[0_12px_28px_rgba(16,185,129,0.40)] cursor-pointer shrink-0 transition-transform active:scale-95"
+          title="New Task"
+          aria-label="New Task"
+        >
+          <AxIcon name="plus" className="w-5 h-5 text-slate-950 shrink-0" />
+          <span className="hidden md:inline font-bold">New Task</span>
+        </button>
 
-        <Chatbot 
+        {/* Fixed Chatbot Assistant Launcher */}
+        <Chatbot
           morningPlan={morningPlan}
           setMorningPlan={setMorningPlan}
           loggedSessions={loggedSessions}
           setLoggedSessions={setLoggedSessions}
         />
-
-        {/* End-of-Day Sync Celebration & Victory Screen */}
-        {victoryData && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-in fade-in duration-300">
-            <div className="ios-glass-panel p-8 max-w-md w-full text-zinc-100 flex flex-col gap-6 relative border border-white/20 shadow-2xl rounded-3xl animate-in zoom-in-95 duration-300">
-              <div className="flex flex-col items-center text-center gap-2">
-                <div className="w-16 h-16 rounded-full bg-amber-500/10 flex items-center justify-center border border-amber-500/30 text-amber-500 mb-2">
-                  <span className="material-symbols-outlined text-[36px]">emoji_events</span>
-                </div>
-                <h3 className="font-headline text-2xl font-bold tracking-tight">Day Closed Successfully!</h3>
-                <p className="text-zinc-400 text-sm">Your learning analytics and calendar are fully updated.</p>
-              </div>
-
-              {/* Metrics Grid */}
-              <div className="grid grid-cols-3 gap-3">
-                <div className="bg-zinc-900/40 border border-white/5 rounded-2xl p-3 flex flex-col items-center text-center">
-                  <span className="material-symbols-outlined text-[20px] text-emerald-400 mb-1">schedule</span>
-                  <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Focus Time</span>
-                  <span className="text-lg font-bold font-headline text-emerald-400 mt-1">
-                    <AnimatedCounter value={victoryData.focusTime} suffix="m" />
-                  </span>
-                </div>
-                <div className="bg-zinc-900/40 border border-white/5 rounded-2xl p-3 flex flex-col items-center text-center">
-                  <span className="material-symbols-outlined text-[20px] text-sky-400 mb-1">menu_book</span>
-                  <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Pages</span>
-                  <span className="text-lg font-bold font-headline text-sky-400 mt-1">
-                    <AnimatedCounter value={victoryData.pagesCovered} />
-                  </span>
-                </div>
-                <div className="bg-zinc-900/40 border border-white/5 rounded-2xl p-3 flex flex-col items-center text-center">
-                  <span className="material-symbols-outlined text-[20px] text-amber-400 mb-1">fact_check</span>
-                  <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">MCQs Done</span>
-                  <span className="text-lg font-bold font-headline text-amber-400 mt-1">
-                    <AnimatedCounter value={victoryData.questionsSolved} />
-                  </span>
-                </div>
-              </div>
-
-              {/* Motivational Quote Block */}
-              <div className="bg-white/5 rounded-2xl p-4 border border-white/10 text-center italic text-zinc-300 text-sm leading-relaxed px-6">
-                "{victoryData.quote}"
-              </div>
-
-              {/* Continue button */}
-              <button
-                onClick={() => {
-                  setVictoryData(null);
-                  audioManager.playSuccess();
-                }}
-                className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-2xl text-sm transition-all shadow-lg active:scale-[0.98] cursor-pointer"
-                style={{ backgroundColor: 'var(--theme-primary, #10B981)' }}
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        )}
       </div>
+
+      <OfflineIndicator />
+
+      {/* Day Summary Modal */}
+      {victoryData && (
+        <div className="fixed inset-0 axion-surface-l3 z-[100] flex items-center justify-center p-4">
+          <div className="axion-surface-l1 p-7 max-w-md w-full text-slate-100 flex flex-col gap-6 relative border border-white/15 shadow-2xl rounded-[26px] modal-emerge">
+            <div className="flex flex-col items-center text-center gap-2">
+              <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/30 text-emerald-400 mb-1">
+                <AxIcon name="tick" className="w-6 h-6 text-emerald-400" />
+              </div>
+              <h3 className="text-xl font-bold tracking-tight text-white">Day Summary</h3>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div className="axion-surface-l2 p-3.5 flex flex-col items-center text-center">
+                <AxIcon name="time" className="w-5 h-5 text-emerald-400 mb-1.5" />
+                <span className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+                  Focus
+                </span>
+                <span className="text-lg font-bold font-mono text-emerald-400 mt-1 tabular-nums">
+                  <AnimatedCounter value={victoryData.focusTime} suffix="m" />
+                </span>
+              </div>
+              <div className="axion-surface-l2 p-3.5 flex flex-col items-center text-center">
+                <AxIcon name="pages" className="w-5 h-5 text-sky-400 mb-1.5" />
+                <span className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+                  Pages
+                </span>
+                <span className="text-lg font-bold font-mono text-sky-400 mt-1 tabular-nums">
+                  <AnimatedCounter value={victoryData.pagesCovered} />
+                </span>
+              </div>
+              <div className="axion-surface-l2 p-3.5 flex flex-col items-center text-center">
+                <AxIcon name="mcq" className="w-5 h-5 text-amber-400 mb-1.5" />
+                <span className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+                  MCQs
+                </span>
+                <span className="text-lg font-bold font-mono text-amber-400 mt-1 tabular-nums">
+                  <AnimatedCounter value={victoryData.questionsSolved} />
+                </span>
+              </div>
+            </div>
+
+            <div className="glass-inner-well p-4 text-center italic text-slate-300 text-xs leading-relaxed">
+              "{victoryData.quote}"
+            </div>
+
+            <button
+              onClick={() => {
+                setVictoryData(null);
+                audioManager.playSuccess();
+              }}
+              className="w-full py-3 text-slate-950 font-bold rounded-xl text-xs transition-all shadow-lg cursor-pointer"
+              style={{ backgroundColor: 'var(--theme-primary, #10b981)' }}
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

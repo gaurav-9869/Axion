@@ -1,12 +1,38 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { PlanItem, LogItem, calculateNextReviewDate, getLocalDateString } from '../types';
-import { nanoid } from 'nanoid';
+import {
+  PlanItem,
+  LogItem,
+  getLocalDateString,
+  ChatShortcut
+} from '../types';
+import ReactMarkdown from 'react-markdown';
+import { auth, onAuthStateChanged } from '../firebase';
+import {
+  getDailyPlan,
+  getStudyLogs
+} from '../services/dbService';
+import {
+  getDailyChatMessages,
+  saveDailyChatMessage,
+  setViewportClearedTimestamp,
+  extractEmbeddedCommands,
+  executeBatchCommands,
+  categorizeAndExtractOperations,
+  getWorkspaceContext
+} from '../services/chatService';
+import {
+  getChatShortcuts,
+  addChatShortcut,
+  updateChatShortcut,
+  reorderChatShortcut,
+  removeChatShortcut,
+  DEFAULT_CHAT_SHORTCUTS
+} from '../services/shortcutService';
 import { generateWithGemini } from '../lib/gemini';
 import { sound } from '../utils/sound';
-import { saveChatMessage, getChatHistory, saveDailyPlan, saveStudyLog, showToast } from '../services/dbService';
-import { db, auth, collection, getDocs, query, orderBy, limit } from '../firebase';
+import { AxIcon } from './AxionIcons';
 
-interface ChatbotProps {
+interface Props {
   morningPlan: PlanItem[];
   setMorningPlan: React.Dispatch<React.SetStateAction<PlanItem[]>>;
   loggedSessions: LogItem[];
@@ -14,531 +40,733 @@ interface ChatbotProps {
 }
 
 interface Message {
-  id?: string;
-  sender: 'user' | 'assistant';
-  text: string;
+  role: 'user' | 'assistant';
+  content: string;
+  actionCard?: {
+    title: string;
+    items: string[];
+  };
 }
 
-// Timeout wrapper helper
-function withTimeout<T>(promise: Promise<T>, ms = 3000): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new Error("Timeout of 3 seconds exceeded"));
-    }, ms);
-    promise.then(
-      (res) => { clearTimeout(timer); resolve(res); },
-      (err) => { clearTimeout(timer); reject(err); }
-    );
-  });
-}
+const DEFAULT_GREETING: Message = {
+  role: 'assistant',
+  content: 'Ready. How would you like to structure your sessions today?'
+};
 
-export default function Chatbot({ morningPlan, setMorningPlan, loggedSessions, setLoggedSessions }: ChatbotProps) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([
-    { sender: 'assistant', text: "Hi! I'm your Axion Study Companion. I can help manage your study plans, summarize your daily progress, analyze focus efficiency, or suggest revision tasks." }
-  ]);
-  const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+/**
+ * Formats LaTeX/math notation ($...$, $$...$$, \frac, Greek symbols, superscripts)
+ * into clean typographic math so formulas never display raw backslashes or delimiters.
+ */
+function formatMathAndMarkdown(raw: string): string {
+  if (!raw) return '';
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // Load chat history from Firestore / LocalStorage with a 3-second timeout fallback
-  useEffect(() => {
-    async function loadHistory() {
-      try {
-        const history = await withTimeout(getChatHistory(30), 3000);
-        if (history && history.length > 0) {
-          setMessages(history.map(h => ({
-            id: h.id,
-            sender: h.role === 'user' ? 'user' : 'assistant',
-            text: h.content
-          })));
-        }
-      } catch (err) {
-        console.warn("Firestore chat logs exceeded timeout or failed, falling back to LocalStorage:", err);
-        // Fallback to local storage query
-        const localStr = localStorage.getItem('axion_chat_history');
-        try {
-          const localParsed = localStr ? JSON.parse(localStr) : [];
-          if (Array.isArray(localParsed) && localParsed.length > 0) {
-            setMessages(localParsed.map((h: any) => ({
-              id: h.id,
-              sender: h.role === 'user' ? 'user' : 'assistant',
-              text: h.content
-            })));
-          }
-        } catch {}
-      }
-    }
-    loadHistory();
-  }, []);
-
-  useEffect(() => {
-    if (isOpen) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages, isOpen]);
-
-  const handleInputResize = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInput(e.target.value);
-    e.target.style.height = 'auto';
-    e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`;
+  const replaceLatexTokens = (expr: string): string => {
+    return expr
+      .replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, '($1) / ($2)')
+      .replace(/\\sqrt\{([^{}]+)\}/g, '√($1)')
+      .replace(/\\Delta/g, 'Δ')
+      .replace(/\\alpha/g, 'α')
+      .replace(/\\beta/g, 'β')
+      .replace(/\\gamma/g, 'γ')
+      .replace(/\\theta/g, 'θ')
+      .replace(/\\lambda/g, 'λ')
+      .replace(/\\omega/g, 'ω')
+      .replace(/\\sigma/g, 'σ')
+      .replace(/\\mu/g, 'μ')
+      .replace(/\\pi/g, 'π')
+      .replace(/\\infty/g, '∞')
+      .replace(/\\approx/g, '≈')
+      .replace(/\\neq/g, '≠')
+      .replace(/\\leq/g, '≤')
+      .replace(/\\geq/g, '≥')
+      .replace(/\\times/g, '×')
+      .replace(/\\cdot/g, '·')
+      .replace(/\\pm/g, '±')
+      .replace(/\\rightarrow/g, '→')
+      .replace(/\\leftarrow/g, '←')
+      .replace(/\^2\b/g, '²')
+      .replace(/\^3\b/g, '³')
+      .replace(/\\text\{([^{}]+)\}/g, '$1');
   };
 
-  const handleSendMessage = async (customText?: string) => {
-    const userText = (customText || input).trim();
-    if (!userText || isLoading) return;
+  // Block math $$...$$
+  let formatted = raw.replace(/\$\$([\s\S]*?)\$\$/g, (_, mathBlock) => {
+    const cleaned = replaceLatexTokens(mathBlock.trim());
+    return `\n\`${cleaned}\`\n`;
+  });
 
-    sound.playSwoosh();
-    setMessages(prev => [...prev, { sender: 'user', text: userText }]);
-    if (!customText) setInput('');
-    setIsLoading(true);
+  // Inline math $...$
+  formatted = formatted.replace(/\$([^\n$]+?)\$/g, (_, mathInline) => {
+    const cleaned = replaceLatexTokens(mathInline.trim());
+    return `\`${cleaned}\``;
+  });
 
-    try {
-      await saveChatMessage('user', userText);
-    } catch (err) {
-      console.warn("Failed to persist user chat message:", err);
-    }
+  return replaceLatexTokens(formatted);
+}
 
-    const lowerUser = userText.toLowerCase();
+export default function Chatbot({
+  morningPlan,
+  setMorningPlan,
+  loggedSessions,
+  setLoggedSessions
+}: Props) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [selectedDate] = useState<string>(() => getLocalDateString(0));
+  const [messages, setMessages] = useState<Message[]>([DEFAULT_GREETING]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
-    // ── NLP OVERRIDE COMMAND 1: Add plan study task ───────────────────────
-    // Matches: 'add biology study task "Genetics" for 45 mins'
-    // Now supports both quoted/unquoted topics, optional task/session keywords, and min/mins/minutes units.
-    const matchAdd = userText.match(/add\s+(biology|chemistry|physics|maths|math|bio|chem|phys)\s+(?:study|revise|exercise)?\s*(?:task|session)?\s*["']?([^"'\n]+?)["']?\s+for\s+(\d+)\s*(?:mins|min|minutes)/i);
-    if (matchAdd) {
+  // Configurable Shortcuts State
+  const [shortcuts, setShortcuts] = useState<ChatShortcut[]>(DEFAULT_CHAT_SHORTCUTS);
+  const [isManagingShortcuts, setIsManagingShortcuts] = useState(false);
+  const [editingShortcutId, setEditingShortcutId] = useState<string | null>(null);
+  const [shortcutLabelInput, setShortcutLabelInput] = useState('');
+  const [shortcutSymbolInput, setShortcutSymbolInput] = useState('+');
+  const [shortcutPromptInput, setShortcutPromptInput] = useState('');
+  const [shortcutSaving, setShortcutSaving] = useState(false);
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, isOpen]);
+
+  useEffect(() => {
+    const handleToggle = () => setIsOpen(prev => !prev);
+    window.addEventListener('axion-toggle-chatbot', handleToggle);
+    return () => window.removeEventListener('axion-toggle-chatbot', handleToggle);
+  }, []);
+
+  // Load daily chat history and shortcuts
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchHistoryForDate = async (dateStr: string) => {
+      setHistoryLoading(true);
       try {
-        const subjectRaw = matchAdd[1].toLowerCase();
-        const subject = subjectRaw.startsWith('bio') ? 'bio' : subjectRaw.startsWith('chem') ? 'chem' : subjectRaw.startsWith('phys') ? 'phys' : 'math';
-        const topic = matchAdd[2].trim();
-        const mins = parseInt(matchAdd[3], 10);
-        const todayStr = getLocalDateString(0);
-
-        const newPlanItem: PlanItem = {
-          id: nanoid(),
-          timestamp: Date.now(),
-          subject,
-          topic,
-          sessionType: 'Study',
-          targetMins: mins,
-          targetUnits: 1,
-          status: 'pending'
-        };
-
-        const updatedPlans = [...morningPlan, newPlanItem];
-        setMorningPlan(updatedPlans);
-        await saveDailyPlan(todayStr, updatedPlans);
-        
-        sound.playChime();
-        showToast(`Successfully added study task for ${subject.toUpperCase()}!`, "success");
-
-        const responseText = `✅ **Plan Task Added Successfully**!\n\nI have scheduled **"${topic}"** (${subject.toUpperCase()}, ${mins} mins) into your study plan for today. You can monitor it on your dashboard.`;
-        setMessages(prev => [...prev, { sender: 'assistant', text: responseText }]);
-        await saveChatMessage('model', responseText);
-      } catch (err: any) {
-        showToast(`Add Task Failed: ${err.message || err}`, "error");
-      } finally {
-        setIsLoading(false);
-      }
-      return;
-    }
-
-    // ── NLP OVERRIDE COMMAND 2: Log session task ──────────────────────────
-    // Matches: 'log chemistry revise task "Thermodynamics" for 30 mins'
-    // Now supports both quoted/unquoted topics, optional task/session keywords, and min/mins/minutes units.
-    const matchLog = userText.match(/log\s+(biology|chemistry|physics|maths|math|bio|chem|phys)\s+(study|revise|exercise)\s*(?:task|session)?\s*["']?([^"'\n]+?)["']?\s+for\s+(\d+)\s*(?:mins|min|minutes)/i);
-    if (matchLog) {
-      try {
-        const subjectRaw = matchLog[1].toLowerCase();
-        const subject = subjectRaw.startsWith('bio') ? 'bio' : subjectRaw.startsWith('chem') ? 'chem' : subjectRaw.startsWith('phys') ? 'phys' : 'math';
-        const typeRaw = matchLog[2].toLowerCase();
-        const sessionType = typeRaw.startsWith('study') ? 'Study' : typeRaw.startsWith('revise') ? 'Revise' : 'Exercise';
-        const topic = matchLog[3].trim();
-        const mins = parseInt(matchLog[4], 10);
-
-        const newLog: LogItem = {
-          id: nanoid(),
-          timestamp: Date.now(),
-          subject,
-          topic,
-          sessionType,
-          activeMins: mins,
-          distractionMins: 0,
-          recoveryMins: 0,
-          notes: 'Logged via Study Companion NLP command Override.',
-          synced: false
-        };
-        newLog.nextReviewDate = calculateNextReviewDate(newLog);
-
-        setLoggedSessions(prev => [...prev, newLog]);
-        await saveStudyLog(newLog);
-
-        sound.playChime();
-        showToast(`Successfully logged session for ${subject.toUpperCase()}!`, "success");
-
-        const responseText = `📝 **Study Session Logged**!\n\nI have successfully recorded your **${sessionType}** session on **"${topic}"** (${subject.toUpperCase()}) for **${mins} mins** directly into your study archive. Great job staying focused!`;
-        setMessages(prev => [...prev, { sender: 'assistant', text: responseText }]);
-        await saveChatMessage('model', responseText);
-      } catch (err: any) {
-        showToast(`Log Session Failed: ${err.message || err}`, "error");
-      } finally {
-        setIsLoading(false);
-      }
-      return;
-    }
-
-    // ── Quick Action 1: Summarize Today ──────────────────────────────────
-    if (lowerUser.includes("summarize today") || lowerUser.includes("summarize today's progress")) {
-      const todayStr = getLocalDateString(0);
-      const totalMins = loggedSessions.reduce((acc, s) => acc + (s.activeMins || 0), 0);
-      const totalDistraction = loggedSessions.reduce((acc, s) => acc + (s.distractionMins || 0), 0);
-      const completedPlans = morningPlan.filter(p => p.status === 'completed').length;
-      const pendingPlans = morningPlan.filter(p => p.status === 'pending').length;
-
-      const subBreakdown: Record<string, number> = {};
-      loggedSessions.forEach(s => {
-        if (s.subject && s.activeMins) {
-          subBreakdown[s.subject] = (subBreakdown[s.subject] || 0) + s.activeMins;
-        }
-      });
-
-      let summaryText = `📊 **Today's Progress Summary (${todayStr})**:\n\n`;
-      summaryText += `• **Active Study Time**: ${totalMins} minutes across ${loggedSessions.length} session(s).\n`;
-      summaryText += `• **Distraction Time**: ${totalDistraction} minutes.\n`;
-      summaryText += `• **Planned Tasks**: ${completedPlans} completed / ${pendingPlans} pending.\n\n`;
-      
-      if (Object.keys(subBreakdown).length > 0) {
-        summaryText += `**Subject Breakdown**:\n`;
-        Object.entries(subBreakdown).forEach(([sub, mins]) => {
-          summaryText += `- ${sub.toUpperCase()}: ${mins} mins\n`;
-        });
-      } else {
-        summaryText += `No active study sessions logged yet today. Use the Tracker view to start a session!`;
-      }
-
-      setTimeout(() => {
-        (async () => {
-          try {
-            setMessages(prev => [...prev, { sender: 'assistant', text: summaryText }]);
-            await saveChatMessage('model', summaryText);
-            sound.playChime();
-          } catch (err) {
-            console.warn("Error saving summary chat message:", err);
-          } finally {
-            setIsLoading(false);
-          }
-        })();
-      }, 400);
-      return;
-    }
-
-    // ── Quick Action 2: Create Revision Task ─────────────────────────────
-    if (lowerUser.includes("revise bio") || lowerUser.includes("revision task for biology") || lowerUser.includes("add biology plan")) {
-      const todayStr = getLocalDateString(0);
-      const newPlanItem: PlanItem = {
-        id: nanoid(),
-        timestamp: Date.now(),
-        subject: 'bio',
-        topic: 'Biology Core Concepts Revision',
-        sessionType: 'Revise',
-        targetMins: 30,
-        targetUnits: 1,
-        status: 'pending'
-      };
-
-      const updatedPlans = [...morningPlan, newPlanItem];
-      setMorningPlan(updatedPlans);
-      await saveDailyPlan(todayStr, updatedPlans);
-      sound.playChime();
-
-      const responseText = `✅ **Added Revision Task**!\n\nI've added **Biology Core Concepts Revision** (30 mins, Revise session) to your morning plan for today. You can track or modify it in the Tracker view.`;
-
-      setTimeout(() => {
-        (async () => {
-          try {
-            setMessages(prev => [...prev, { sender: 'assistant', text: responseText }]);
-            await saveChatMessage('model', responseText);
-          } catch (err) {
-            console.warn("Error saving revision chat message:", err);
-          } finally {
-            setIsLoading(false);
-          }
-        })();
-      }, 400);
-      return;
-    }
-
-    // ── Quick Action 3: Focus Advice ────────────────────────────────────
-    if (lowerUser.includes("focus advice") || lowerUser.includes("subject needs the most attention") || lowerUser.includes("attention")) {
-      const subMins: Record<string, number> = { bio: 0, phys: 0, chem: 0, math: 0 };
-      loggedSessions.forEach(s => {
-        if (s.subject && s.activeMins) {
-          subMins[s.subject] = (subMins[s.subject] || 0) + s.activeMins;
-        }
-      });
-
-      const sortedSubs = Object.entries(subMins).sort((a, b) => a[1] - b[1]);
-      const lowestSub = sortedSubs[0];
-
-      let adviceText = `🎯 **Focus & Subject Priority Advice**:\n\n`;
-      if (lowestSub) {
-        adviceText += `• **Priority Subject**: **${lowestSub[0].toUpperCase()}** has the lowest logged study time (${lowestSub[1]} mins).\n`;
-        adviceText += `• **Recommendation**: Allocate a 40-minute focused study block for ${lowestSub[0].toUpperCase()} today to maintain balanced syllabus coverage.\n`;
-      } else {
-        adviceText += `• Start by scheduling 30-45 minute blocks for Physics & Chemistry today, followed by a 20-minute practice exercise.\n`;
-      }
-      adviceText += `• Remember to log distractions during sessions to accurately track your efficiency scores in the Analysis tab!`;
-
-      setTimeout(() => {
-        (async () => {
-          try {
-            setMessages(prev => [...prev, { sender: 'assistant', text: adviceText }]);
-            await saveChatMessage('model', adviceText);
-            sound.playChime();
-          } catch (err) {
-            console.warn("Error saving advice chat message:", err);
-          } finally {
-            setIsLoading(false);
-          }
-        })();
-      }, 400);
-      return;
-    }
-
-    // ── Standard AI Request with Gemini + Fallback ───────────────────────
-    try {
-      const safePlanText = JSON.stringify(morningPlan || []).replace(/[\/\\]/g, '');
-      const safeLogText = JSON.stringify((loggedSessions || []).slice(-10)).replace(/[\/\\]/g, '');
-      const safeUserText = userText.replace(/["'\\]/g, ' ').replace(/[\r\n]/g, ' ');
-
-      const recentContext = messages.slice(-6).map(m => `${m.sender.toUpperCase()}: ${m.text}`).join('\n');
-
-      const operationalPrompt = `You are a supportive, direct study assistant for Axion Workspace Hub.
-Current items:
-Morning Plans: ${safePlanText}
-Recent Logs: ${safeLogText}
-
-Recent conversation context:
-${recentContext}
-
-If user requests updates, append standard commands:
-To add a plan: :::{"command": "add_plan", "subject": "bio"|"phys"|"chem"|"math", "topic": "string", "mins": number, "units": number}:::
-To update a log: :::{"command": "add_log", "subject": "bio"|"phys"|"chem"|"math", "topic": "string", "sessionType": "Study"|"Revise"|"Exercise", "activeMins": number, "distractionMins": number, "checkingMins": number, "practiceMins": number, "errors": number, "startPage": number, "endPage": number}:::
-
-User input message: "${safeUserText}"`;
-
-      let assistantText = '';
-      try {
-        assistantText = await generateWithGemini(operationalPrompt);
-      } catch (geminiError: any) {
-        console.warn("Gemini unavailable, generating local intelligent response:", geminiError);
-
-        if (lowerUser.includes("plan") || lowerUser.includes("add") || lowerUser.includes("study")) {
-          const todayStr = getLocalDateString(0);
-          const newPlan: PlanItem = {
-            id: nanoid(),
-            timestamp: Date.now(),
-            subject: lowerUser.includes("phys") ? 'phys' : lowerUser.includes("chem") ? 'chem' : lowerUser.includes("math") ? 'math' : 'bio',
-            topic: userText.length < 40 ? userText : 'Custom Study Task',
-            sessionType: 'Study',
-            targetMins: 45,
-            targetUnits: 1,
-            status: 'pending'
-          };
-          const updated = [...morningPlan, newPlan];
-          setMorningPlan(updated);
-          await saveDailyPlan(todayStr, updated);
-          sound.playChime();
-          assistantText = `I've added "${newPlan.topic}" (${newPlan.subject.toUpperCase()}, 45 mins) to your daily study plan.`;
+        const history = await getDailyChatMessages(dateStr);
+        if (!isMounted) return;
+        if (history && history.length > 0) {
+          setMessages(
+            history.map(m => ({
+              role: m.sender === 'user' ? 'user' : 'assistant',
+              content: m.text,
+              actionCard:
+                m.operationsExecuted && m.operationsExecuted.length > 0
+                  ? {
+                      title: 'Actions',
+                      items: m.operationsExecuted.map(
+                        op =>
+                          `${op.type.toUpperCase()}: [${op.subject.toUpperCase()}] ${op.topic}`
+                      )
+                    }
+                  : undefined
+            }))
+          );
         } else {
-          assistantText = `I'm here to support your study session! You currently have ${morningPlan.length} task(s) in today's plan and ${loggedSessions.length} logged session(s). Let me know if you want to add a new study task or review your syllabus pace!`;
+          setMessages([DEFAULT_GREETING]);
+        }
+      } catch {
+        if (isMounted) setMessages([DEFAULT_GREETING]);
+      } finally {
+        if (isMounted) {
+          setHistoryLoading(false);
         }
       }
+    };
 
-      // Check if command is embedded in assistant text
-      const jsonRegex = /:::(.*?):::/s;
-      const match = assistantText.match(jsonRegex);
-
-      if (match && match[1]) {
-        try {
-          const commandData = JSON.parse(match[1].trim());
-
-          if (commandData.command === 'add_plan') {
-            const todayStr = getLocalDateString(0);
-            const rawSub = (commandData.subject || 'bio').toLowerCase();
-            const normalizedSub = rawSub.startsWith('bio') ? 'bio' : rawSub.startsWith('chem') ? 'chem' : rawSub.startsWith('phys') ? 'phys' : 'math';
-            const newPlan: PlanItem = {
-              id: nanoid(),
-              timestamp: Date.now(),
-              subject: normalizedSub,
-              topic: commandData.topic || 'Untitled Entry',
-              sessionType: 'Study',
-              targetUnits: commandData.units || 0,
-              targetMins: commandData.mins || 30,
-              status: 'pending'
-            };
-            const updated = [...morningPlan, newPlan];
-            setMorningPlan(updated);
-            await saveDailyPlan(todayStr, updated);
-            sound.playChime();
-          }
-
-          if (commandData.command === 'add_log') {
-            const sessionType = commandData.sessionType || 'Study';
-            const rawSub = (commandData.subject || 'bio').toLowerCase();
-            const normalizedSub = rawSub.startsWith('bio') ? 'bio' : rawSub.startsWith('chem') ? 'chem' : rawSub.startsWith('phys') ? 'phys' : 'math';
-            const newLog: LogItem = {
-              id: nanoid(),
-              timestamp: Date.now(),
-              subject: normalizedSub,
-              topic: commandData.topic || 'Untitled Session',
-              sessionType: sessionType,
-              activeMins: commandData.activeMins || 0,
-              distractionMins: commandData.distractionMins || 0,
-              recoveryMins: 0,
-              checkingMins: commandData.checkingMins || undefined,
-              practiceMins: commandData.practiceMins || undefined,
-              errors: commandData.errors !== undefined ? commandData.errors : undefined,
-              retentionScore: sessionType === 'Study' ? (commandData.retentionScore || 5) : undefined,
-              startPage: commandData.startPage || undefined,
-              endPage: commandData.endPage || undefined,
-              notes: commandData.notes || '',
-              frictionAnalysis: commandData.frictionPoint || undefined,
-              synced: false
-            };
-            newLog.nextReviewDate = calculateNextReviewDate(newLog);
-            setLoggedSessions(prev => [...prev, newLog]);
-            await saveStudyLog(newLog);
-            sound.playChime();
-          }
-
-          assistantText = assistantText.replace(jsonRegex, '').trim();
-        } catch (jsonErr) {
-          console.error("JSON command bypass handled", jsonErr);
+    const fetchShortcutsList = async () => {
+      try {
+        const list = await getChatShortcuts();
+        if (isMounted && list.length > 0) {
+          setShortcuts(list);
         }
-      }
+      } catch {}
+    };
 
-      setMessages(prev => [...prev, { sender: 'assistant', text: assistantText }]);
-      await saveChatMessage('model', assistantText);
-    } catch (err: any) {
-      console.warn("Chatbot Error:", err);
-      const text = `I'm here to help with your study plan. You can ask me to summarize your progress, create study tasks, or give focus advice!`;
-      setMessages(prev => [...prev, { sender: 'assistant', text }]);
+    fetchHistoryForDate(selectedDate);
+    fetchShortcutsList();
+
+    const unsubscribe = onAuthStateChanged(auth, user => {
+      if (user) {
+        fetchHistoryForDate(selectedDate);
+        fetchShortcutsList();
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, [selectedDate]);
+
+  // Start a new thread for the current date
+  const handleNewThread = () => {
+    sound.playClick();
+    setViewportClearedTimestamp(selectedDate, Date.now());
+    setMessages([DEFAULT_GREETING]);
+  };
+
+  const resetShortcutEditor = () => {
+    setEditingShortcutId(null);
+    setShortcutLabelInput('');
+    setShortcutSymbolInput('+');
+    setShortcutPromptInput('');
+  };
+
+  const handleOpenAddShortcut = () => {
+    sound.playClick();
+    setIsManagingShortcuts(true);
+    setEditingShortcutId('__new__');
+    setShortcutLabelInput('');
+    setShortcutSymbolInput('+');
+    setShortcutPromptInput(input.trim() || '');
+  };
+
+  const handleStartEditShortcut = (sc: ChatShortcut) => {
+    sound.playClick();
+    setEditingShortcutId(sc.id);
+    setShortcutLabelInput(sc.label);
+    setShortcutSymbolInput(sc.symbol || '+');
+    setShortcutPromptInput(sc.promptTemplate || sc.prompt || '');
+  };
+
+  const handleSaveShortcutForm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanLabel = shortcutLabelInput.trim();
+    const cleanPrompt = shortcutPromptInput.trim();
+    const cleanSymbol = shortcutSymbolInput.trim() || '+';
+    if (!cleanLabel || !cleanPrompt) return;
+
+    setShortcutSaving(true);
+    try {
+      if (editingShortcutId === '__new__') {
+        const { all } = await addChatShortcut({
+          label: cleanLabel,
+          symbol: cleanSymbol,
+          promptTemplate: cleanPrompt
+        });
+        setShortcuts(all);
+      } else if (editingShortcutId) {
+        const updated = await updateChatShortcut(editingShortcutId, {
+          label: cleanLabel,
+          symbol: cleanSymbol,
+          promptTemplate: cleanPrompt
+        });
+        setShortcuts(updated);
+      }
+      sound.playSuccess();
+      resetShortcutEditor();
     } finally {
-      setIsLoading(false);
+      setShortcutSaving(false);
+    }
+  };
+
+  const handleReorderShortcut = async (id: string, dir: 'left' | 'right') => {
+    sound.playClick();
+    const updated = await reorderChatShortcut(id, dir);
+    setShortcuts(updated);
+  };
+
+  const handleDeleteShortcut = async (id: string) => {
+    sound.playClick();
+    const updated = await removeChatShortcut(id);
+    setShortcuts(updated);
+    if (editingShortcutId === id) {
+      resetShortcutEditor();
+    }
+  };
+
+  const handleShortcutClick = (sc: ChatShortcut) => {
+    sound.playClick();
+    const promptText = (sc.promptTemplate || sc.prompt || '').trim();
+    if (!promptText) return;
+    setInput(promptText);
+    handleSend(promptText);
+  };
+
+  const handleSend = async (overrideMessage?: string) => {
+    const userMsg = (overrideMessage !== undefined ? overrideMessage : input).trim();
+    if (!userMsg || loading) return;
+
+    sound.playClick();
+    setInput('');
+    const updatedMessages: Message[] = [...messages, { role: 'user', content: userMsg }];
+    setMessages(updatedMessages);
+    setLoading(true);
+
+    // Persist user message silently
+    saveDailyChatMessage(selectedDate, {
+      sender: 'user',
+      text: userMsg
+    }).catch(() => {});
+
+    try {
+      const todayStr = getLocalDateString(0);
+      const uid = auth.currentUser?.uid || '';
+
+      let freshLogs = loggedSessions;
+      let freshPlan = morningPlan;
+      let firestoreWorkspaceContext = '';
+
+      try {
+        const [dbLogs, dbPlan, wsContext] = await Promise.all([
+          getStudyLogs(120),
+          getDailyPlan(todayStr),
+          uid ? getWorkspaceContext(uid, todayStr) : Promise.resolve('')
+        ]);
+        if (dbLogs && dbLogs.length > 0) {
+          freshLogs = dbLogs;
+          setLoggedSessions(dbLogs);
+        }
+        if (dbPlan && dbPlan.length > 0) {
+          freshPlan = dbPlan;
+          if (selectedDate === todayStr) {
+            setMorningPlan(dbPlan);
+          }
+        }
+        if (wsContext) {
+          firestoreWorkspaceContext = wsContext;
+        }
+      } catch {}
+
+      const recentContextSummary = freshLogs
+        .slice(0, 20)
+        .map(
+          l =>
+            `- [${l.subject.toUpperCase()}] ${l.topic} (${l.sessionType || 'Study'}, ${
+              l.activeMins || 30
+            }m, R:${l.retentionScore || 8}/10)`
+        )
+        .join('\n');
+
+      const planSummary = freshPlan
+        .map(
+          p =>
+            `- [${p.subject.toUpperCase()}] ${p.topic} (${p.sessionType}, ${p.targetMins}m, ${p.status})`
+        )
+        .join('\n');
+
+      // Multi-Turn Context Buffer (retaining conversation history within the session)
+      const multiTurnBuffer = updatedMessages
+        .slice(-10)
+        .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
+        .join('\n');
+
+      const systemPrompt = `You are Axion Assistant, a concise academic study companion.
+Active Date: ${todayStr}
+Today's Tasks:
+${planSummary || 'None'}
+
+Recent Study History:
+${recentContextSummary || 'None'}
+
+Firestore Workspace Snapshot:
+${firestoreWorkspaceContext || 'None'}
+
+Conversation History (Multi-Turn Buffer):
+${multiTurnBuffer}
+
+If the user asks to log a session or plan tasks, include a JSON command block wrapped in :::{"operations":[...]}::: where each operation has:
+{"command":"add_log"|"add_plan"|"schedule_revision","date":"${selectedDate}","subject":"phys"|"chem"|"math"|"bio","chapter":"...","topic":"...","sessionType":"Study"|"Revise"|"Exercise","activeMins":45,"targetMins":45,"mcqCount":20,"retentionScore":8}
+
+Format formulas cleanly and use concise markdown bullets or tables.
+
+Current User Message: ${userMsg}`;
+
+      const rawAiText = await generateWithGemini(systemPrompt);
+      const { cleanedText, commands } = extractEmbeddedCommands(rawAiText);
+
+      const finalCommands =
+        commands.length > 0
+          ? commands
+          : categorizeAndExtractOperations(userMsg, 'phys', selectedDate);
+
+      let operationsExecuted: any[] = [];
+      const actionItems: string[] = [];
+
+      if (finalCommands.length > 0) {
+        const execResult = await executeBatchCommands(finalCommands, 'phys', selectedDate);
+        operationsExecuted = execResult.operationsExecuted;
+
+        execResult.operationsExecuted.forEach(op => {
+          if (op.status === 'success') {
+            actionItems.push(`${op.type.toUpperCase()}: [${op.subject.toUpperCase()}] ${op.topic}`);
+          }
+        });
+
+        // Refresh logs and plans in state
+        const [updatedLogs, updatedPlan] = await Promise.all([
+          getStudyLogs(150),
+          getDailyPlan(todayStr)
+        ]);
+        if (updatedLogs) setLoggedSessions(updatedLogs);
+        if (updatedPlan) setMorningPlan(updatedPlan);
+      }
+
+      const assistantReply =
+        cleanedText ||
+        (actionItems.length > 0 ? 'Updated your workspace.' : 'Done.');
+
+      await saveDailyChatMessage(selectedDate, {
+        sender: 'assistant',
+        text: assistantReply,
+        operationsExecuted
+      });
+
+      setMessages(prev => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: assistantReply,
+          actionCard:
+            actionItems.length > 0
+              ? {
+                  title: 'Actions',
+                  items: actionItems
+                }
+              : undefined
+        }
+      ]);
+      sound.playSuccess();
+    } catch (error: any) {
+      sound.playError();
+      const errorMsg =
+        error?.message || 'Failed to reach AI service. Please verify your network and API key.';
+      setMessages(prev => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: `Connection error: ${errorMsg}`
+        }
+      ]);
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
     <>
-      {/* Floating Chat Trigger Button */}
-      <button 
-        onClick={() => { sound.playClick(); setIsOpen(!isOpen); }}
-        className="fixed bottom-6 right-6 w-14 h-14 rounded-full text-white flex items-center justify-center shadow-2xl hover:scale-105 active:scale-95 transition-all cursor-pointer z-50 border border-white/20"
-        style={{ backgroundColor: 'var(--theme-primary, #10B981)' }}
-        title="Toggle AI Assistant"
+      {/* Floating Chat Trigger Capsule */}
+      <button
+        onClick={() => {
+          sound.playClick();
+          setIsOpen(!isOpen);
+        }}
+        className="ax-tap w-12 h-12 rounded-full axion-capsule-l3 flex items-center justify-center text-white hover:border-emerald-500/40 shadow-[0_12px_28px_rgba(0,0,0,0.55)] cursor-pointer relative"
+        title="Assistant"
       >
-        <span className="material-symbols-outlined text-[24px]">{isOpen ? 'close' : 'smart_toy'}</span>
+        <AxIcon name={isOpen ? 'close' : 'chat'} className="w-5 h-5 text-white ax-icon-white" />
+        <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#10b981]" />
       </button>
 
-      {/* Slide-out Glass Chat Drawer Panel */}
-      <div 
-        className={`fixed bottom-24 right-6 w-[calc(100vw-2rem)] sm:w-[420px] h-[540px] ios-glass-panel flex flex-col overflow-hidden z-50 rounded-[28px] shadow-2xl transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] transform border border-white/15 ${
-          isOpen ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto' : 'opacity-0 translate-y-8 scale-90 pointer-events-none'
-        }`}
-      >
-        {/* Header Panel */}
-        <div className="p-4 border-b border-white/10 bg-black/40 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <span className="w-2.5 h-2.5 rounded-full animate-pulse" style={{ backgroundColor: 'var(--theme-primary, #10B981)' }} />
-            <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-200">Axion Study Companion</h3>
+      {/* Level 4 Chat Drawer (rgba(10, 14, 26, 0.92), blur(28px), 1px solid rgba(255, 255, 255, 0.08), 24px radius) */}
+      {isOpen && (
+        <div
+          className="fixed bottom-[74px] md:bottom-20 right-3.5 md:right-6 w-[calc(100vw-1.75rem)] sm:w-[410px] h-[580px] max-h-[78vh] flex flex-col overflow-hidden z-[90] modal-emerge shadow-[0_24px_60px_-12px_rgba(0,0,0,0.85)]"
+          style={{
+            background: 'rgba(10, 14, 26, 0.94)',
+            backdropFilter: 'blur(28px)',
+            WebkitBackdropFilter: 'blur(28px)',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            borderRadius: '24px'
+          }}
+        >
+          {/* 1. STREAMLINED HEADER: Strictly Title "Assistant", Active Green Pulse Indicator, and New Thread Button (#ax-resync) */}
+          <div className="px-4 py-3.5 border-b border-white/[0.08] flex items-center justify-between gap-2 bg-black/20 shrink-0">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 relative">
+                <AxIcon name="chat" className="w-4 h-4 text-white ax-icon-white" />
+                <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-[#0a0e1a] animate-pulse" />
+              </div>
+              <h3 className="text-sm font-bold tracking-tight text-white">Assistant</h3>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              {/* New Thread Button (#ax-resync) */}
+              <button
+                onClick={handleNewThread}
+                className="ax-pressable w-8 h-8 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.06] flex items-center justify-center text-white cursor-pointer"
+                title="New Thread"
+              >
+                <AxIcon name="resync" className="w-4 h-4 text-white ax-icon-white" />
+              </button>
+
+              {/* Close Drawer Button */}
+              <button
+                onClick={() => setIsOpen(false)}
+                className="ax-pressable w-8 h-8 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.06] flex items-center justify-center text-slate-300 hover:text-white cursor-pointer"
+                title="Close"
+              >
+                <AxIcon name="close" className="w-4 h-4" />
+              </button>
+            </div>
           </div>
-          <button onClick={() => setIsOpen(false)} className="text-zinc-400 hover:text-white cursor-pointer">
-            <span className="material-symbols-outlined text-[18px]">close</span>
-          </button>
-        </div>
 
-        {/* Quick Actions Row */}
-        <div className="px-3 py-2 border-b border-white/5 bg-black/20 flex gap-2 overflow-x-auto custom-scrollbar">
-          <button 
-            onClick={() => handleSendMessage("Summarize today's progress and focus efficiency.")}
-            className="px-2.5 py-1.5 text-[10px] font-bold bg-white/10 hover:bg-white/20 text-zinc-100 rounded-xl whitespace-nowrap cursor-pointer transition-colors border border-white/10 flex items-center gap-1 shrink-0 animate-ios-fade-in"
-          >
-            📊 Summarize Today
-          </button>
-          <button 
-            onClick={() => handleSendMessage("Create a revision task for Biology.")}
-            className="px-2.5 py-1.5 text-[10px] font-bold bg-white/10 hover:bg-white/20 text-zinc-100 rounded-xl whitespace-nowrap cursor-pointer transition-colors border border-white/10 flex items-center gap-1 shrink-0 animate-ios-fade-in"
-          >
-            ➕ Revise Bio Task
-          </button>
-          <button 
-            onClick={() => handleSendMessage("What subject needs the most attention?")}
-            className="px-2.5 py-1.5 text-[10px] font-bold bg-white/10 hover:bg-white/20 text-zinc-100 rounded-xl whitespace-nowrap cursor-pointer transition-colors border border-white/10 flex items-center gap-1 shrink-0 animate-ios-fade-in"
-          >
-            🎯 Focus Advice
-          </button>
-          <button 
-            onClick={() => handleSendMessage('log chemistry study task "Organic Chemistry" for 45 mins')}
-            className="px-2.5 py-1.5 text-[10px] font-bold bg-white/10 hover:bg-white/20 text-zinc-100 rounded-xl whitespace-nowrap cursor-pointer transition-colors border border-white/10 flex items-center gap-1 shrink-0 animate-ios-fade-in"
-          >
-            📝 Log Session
-          </button>
-        </div>
+          {/* 2. MESSAGES STREAM */}
+          <div className="flex-1 p-4 overflow-y-auto flex flex-col gap-3.5">
+            {historyLoading ? (
+              <div className="flex items-center justify-center h-full text-slate-400 text-xs font-mono gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                <span>Loading...</span>
+              </div>
+            ) : (
+              messages.map((m, i) => (
+                <div
+                  key={i}
+                  className={`flex flex-col gap-1.5 ${
+                    m.role === 'user' ? 'items-end' : 'items-start'
+                  }`}
+                >
+                  <div
+                    className={`max-w-[88%] px-3.5 py-2.5 rounded-2xl text-xs leading-relaxed ${
+                      m.role === 'user'
+                        ? 'bg-emerald-500 text-slate-950 font-semibold rounded-br-sm'
+                        : 'axion-surface-l2 text-slate-100 rounded-bl-sm'
+                    }`}
+                  >
+                    {m.role === 'assistant' ? (
+                      <div className="markdown-body space-y-2 break-words [&_p]:leading-relaxed [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_li]:my-0.5 [&_strong]:text-emerald-300 [&_strong]:font-semibold [&_code]:font-mono [&_code]:text-[11px] [&_code]:bg-black/40 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-emerald-300 [&_table]:w-full [&_table]:border-collapse [&_th]:border [&_th]:border-white/15 [&_th]:bg-white/5 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_td]:border [&_td]:border-white/10 [&_td]:px-2 [&_td]:py-1">
+                        <ReactMarkdown>{formatMathAndMarkdown(m.content)}</ReactMarkdown>
+                      </div>
+                    ) : (
+                      <span className="whitespace-pre-wrap break-words">{m.content}</span>
+                    )}
+                  </div>
 
-        {/* Message Stream */}
-        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
-          {messages.map((msg, idx) => (
-            <div 
-              key={idx} 
-              className={`max-w-[85%] p-3.5 rounded-2xl text-xs sm:text-sm leading-relaxed whitespace-pre-wrap break-words ${
-                msg.sender === 'user' 
-                  ? 'text-white ml-auto rounded-tr-none shadow-md' 
-                  : 'bg-black/50 text-zinc-200 mr-auto rounded-tl-none border border-white/10 shadow-sm'
-              }`}
-              style={{ backgroundColor: msg.sender === 'user' ? 'var(--theme-primary, #10B981)' : undefined }}
+                  {m.actionCard && (
+                    <div className="max-w-[88%] w-full axion-surface-l2 border-emerald-500/30 p-3 flex flex-col gap-1.5">
+                      <div className="flex items-center gap-1.5 text-emerald-400 font-mono text-[10px] font-bold uppercase tracking-wider">
+                        <AxIcon name="tick" className="w-3.5 h-3.5" />
+                        <span>{m.actionCard.title}</span>
+                      </div>
+                      <ul className="flex flex-col gap-1">
+                        {m.actionCard.items.map((item, idx) => (
+                          <li
+                            key={idx}
+                            className="text-[11px] text-slate-200 font-mono flex items-start gap-1.5"
+                          >
+                            <span className="text-emerald-400">•</span>
+                            <span>{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+
+            {loading && (
+              <div className="self-start axion-surface-l2 px-3.5 py-2.5 rounded-2xl rounded-bl-sm flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce" />
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce [animation-delay:120ms]" />
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce [animation-delay:240ms]" />
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* 3. CONFIGURABLE SHORTCUTS TOOLBAR */}
+          <div className="px-3.5 py-2 border-t border-white/[0.06] bg-black/25 flex flex-col gap-2 shrink-0">
+            <div className="flex items-center justify-between gap-1.5">
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 flex-1">
+                {shortcuts.map(sc => (
+                  <button
+                    key={sc.id}
+                    type="button"
+                    onClick={() => handleShortcutClick(sc)}
+                    disabled={loading}
+                    className="ax-tap px-2.5 py-1 rounded-full bg-white/[0.05] hover:bg-emerald-500/15 border border-white/[0.08] hover:border-emerald-500/30 text-[11px] font-mono text-slate-200 hover:text-emerald-300 whitespace-nowrap flex items-center gap-1 shrink-0 cursor-pointer disabled:opacity-40"
+                    title={sc.promptTemplate}
+                  >
+                    <span className="text-emerald-400 font-bold">{sc.symbol || '+'}</span>
+                    <span>{sc.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleOpenAddShortcut}
+                  className="ax-tap w-6 h-6 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] flex items-center justify-center text-slate-300 hover:text-emerald-400 cursor-pointer"
+                  title="Add Shortcut"
+                >
+                  <AxIcon name="plus" className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.playClick();
+                    setIsManagingShortcuts(!isManagingShortcuts);
+                    if (isManagingShortcuts) resetShortcutEditor();
+                  }}
+                  className={`ax-tap w-6 h-6 rounded-lg border flex items-center justify-center cursor-pointer ${
+                    isManagingShortcuts
+                      ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400'
+                      : 'bg-white/[0.05] border-white/[0.08] text-slate-400 hover:text-white'
+                  }`}
+                  title="Edit Shortcuts"
+                >
+                  <AxIcon name="settings" className="w-3.5 h-3.5 text-white ax-icon-white" />
+                </button>
+              </div>
+            </div>
+
+            {/* Inline Shortcut Manager Drawer */}
+            {isManagingShortcuts && (
+              <div className="axion-surface-l2 p-3 flex flex-col gap-2.5 max-h-56 overflow-y-auto">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-300 font-semibold">
+                    Shortcuts
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsManagingShortcuts(false);
+                      resetShortcutEditor();
+                    }}
+                    className="text-slate-400 hover:text-white cursor-pointer"
+                  >
+                    <AxIcon name="close" className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  {shortcuts.map((sc, idx) => (
+                    <div
+                      key={sc.id}
+                      className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl bg-black/30 border border-white/[0.06]"
+                    >
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="text-xs font-mono text-emerald-400 shrink-0">
+                          {sc.symbol || '+'}
+                        </span>
+                        <span className="text-xs text-white truncate">{sc.label}</span>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          disabled={idx === 0}
+                          onClick={() => handleReorderShortcut(sc.id, 'left')}
+                          className="p-1 text-slate-400 hover:text-white disabled:opacity-30 cursor-pointer"
+                        >
+                          <AxIcon name="chevron-left" className="w-3 h-3" />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={idx === shortcuts.length - 1}
+                          onClick={() => handleReorderShortcut(sc.id, 'right')}
+                          className="p-1 text-slate-400 hover:text-white disabled:opacity-30 cursor-pointer"
+                        >
+                          <AxIcon name="chevron-right" className="w-3 h-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleStartEditShortcut(sc)}
+                          className="p-1 text-slate-400 hover:text-emerald-400 cursor-pointer"
+                        >
+                          <AxIcon name="edit" className="w-3 h-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteShortcut(sc.id)}
+                          className="p-1 text-slate-400 hover:text-rose-400 cursor-pointer"
+                        >
+                          <AxIcon name="delete" className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {editingShortcutId && (
+                  <form
+                    onSubmit={handleSaveShortcutForm}
+                    className="flex flex-col gap-2 pt-2 border-t border-white/[0.08]"
+                  >
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        value={shortcutSymbolInput}
+                        onChange={e => setShortcutSymbolInput(e.target.value)}
+                        maxLength={3}
+                        placeholder="+"
+                        className="w-10 ios-glass-input px-2 py-1.5 text-xs text-center font-mono text-white"
+                      />
+                      <input
+                        type="text"
+                        required
+                        value={shortcutLabelInput}
+                        onChange={e => setShortcutLabelInput(e.target.value)}
+                        placeholder="Label (e.g. Focus Advice)"
+                        className="flex-1 ios-glass-input px-2.5 py-1.5 text-xs text-white"
+                      />
+                    </div>
+                    <textarea
+                      rows={2}
+                      required
+                      value={shortcutPromptInput}
+                      onChange={e => setShortcutPromptInput(e.target.value)}
+                      placeholder="Prompt..."
+                      className="ios-glass-input px-2.5 py-1.5 text-xs text-white resize-none"
+                    />
+                    <div className="flex justify-end gap-1.5">
+                      <button
+                        type="button"
+                        onClick={resetShortcutEditor}
+                        className="px-2.5 py-1 rounded-lg bg-white/[0.06] text-[11px] text-slate-300 cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={shortcutSaving}
+                        className="px-3 py-1 rounded-lg bg-emerald-500 text-slate-950 font-bold text-[11px] cursor-pointer"
+                      >
+                        Save
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* 4. INPUT COMPOSER */}
+          <div className="p-3 bg-black/35 border-t border-white/[0.08] flex items-center gap-2 shrink-0">
+            <textarea
+              ref={inputRef}
+              rows={1}
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
+              placeholder="Ask Assistant..."
+              className="flex-1 ios-glass-input rounded-full px-4 py-2.5 text-xs text-white placeholder-slate-500 resize-none max-h-24"
+            />
+            <button
+              onClick={() => handleSend()}
+              disabled={loading || !input.trim()}
+              className="ax-pressable w-9 h-9 rounded-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center justify-center disabled:opacity-40 cursor-pointer shrink-0 shadow-[0_0_16px_rgba(16,185,129,0.35)]"
+              title="Send"
             >
-              {msg.text}
-            </div>
-          ))}
-          {isLoading && (
-            <div className="bg-black/40 text-zinc-400 mr-auto rounded-2xl rounded-tl-none border border-white/10 p-3 flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 bg-zinc-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
-              <span className="w-1.5 h-1.5 bg-zinc-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
-              <span className="w-1.5 h-1.5 bg-zinc-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
-            </div>
-          )}
-          <div ref={messagesEndRef} />
+              <AxIcon name="send" className="w-4 h-4" />
+            </button>
+          </div>
         </div>
-
-        {/* Input Area */}
-        <div className="p-3 border-t border-white/10 bg-black/40 flex items-end gap-2">
-          <textarea
-            ref={textareaRef}
-            rows={1}
-            value={input}
-            onChange={handleInputResize}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSendMessage();
-              }
-            }}
-            placeholder="Ask AI or log session..."
-            className="flex-1 ios-glass-input border border-white/10 focus:border-white/20 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm outline-none text-white transition-colors resize-none font-medium max-h-[100px] leading-normal"
-          />
-          <button 
-            onClick={() => handleSendMessage()}
-            disabled={!input.trim() || isLoading}
-            className="p-2.5 text-white rounded-xl shadow-md disabled:opacity-30 transition-all cursor-pointer flex items-center justify-center shrink-0"
-            style={{ backgroundColor: 'var(--theme-primary, #10B981)' }}
-          >
-            <span className="material-symbols-outlined text-[16px]">send</span>
-          </button>
-        </div>
-
-      </div>
+      )}
     </>
   );
 }

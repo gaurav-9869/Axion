@@ -1,131 +1,405 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
+@import "./styles/tokens.css";
 
 @theme {
   --color-background: transparent;
-  --color-surface-glass: rgba(15, 23, 42, var(--panel-opacity, 0.75));
-  --color-surface-glass-nested: rgba(255, 255, 255, 0.05);
-  --color-surface-input: rgba(0, 0, 0, 0.5);
+  --color-surface-glass: rgba(15, 23, 42, 0.70);
+  --color-surface-glass-nested: rgba(20, 27, 45, 0.82);
+  --color-surface-input: rgba(10, 14, 26, 0.72);
   
-  --color-primary: var(--theme-primary, #10B981);
-  --color-primary-container: rgba(16, 185, 129, 0.18);
+  --color-primary: var(--theme-primary, #10b981);
+  --color-primary-container: rgba(16, 185, 129, 0.14);
   
-  --color-warning: #F59E0B;
-  --color-error: #EF4444;
-  --color-tertiary: #3b82f6;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  --color-tertiary: #38bdf8;
   
-  --color-on-surface: #F8FAFC;
-  --color-on-surface-variant: #94A3B8;
-  --color-outline-glass: rgba(255, 255, 255, 0.12);
-}
-
-html { 
-  background-color: #0a0f18 !important; 
-}
-
-body { 
-  background-color: transparent !important;
-  margin: 0;
-  padding: 0;
-  min-height: 100vh;
-  color: var(--color-on-surface);
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  overflow-x: hidden;
-  -webkit-font-smoothing: antialiased;
-}
-
-/* Tactile Buttons */
-button {
-  transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.2s ease, opacity 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
-}
-button:active {
-  transform: scale(0.96);
-}
-
-/* Dynamic Wallpaper Canvas Backing */
-.ios-wallpaper-canvas {
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  background-image: var(--wallpaper-url, radial-gradient(circle at top left, #1e1b4b 0%, #0a0f18 100%));
-  background-size: cover;
-  background-position: center;
-  background-attachment: fixed;
-  transition: background-image 0.5s ease-in-out;
-}
-
-.ios-wallpaper-canvas::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: #000;
-  opacity: var(--wallpaper-dim, 0.00);
-  z-index: 0;
+  --color-on-surface: #f8fafc;
+  --color-on-surface-variant: #94a3b8;
+  --color-outline-glass: rgba(255, 255, 255, 0.08);
+  
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-headline: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 :root {
+  --ax-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --ax-spring: cubic-bezier(0.16, 1, 0.3, 1);
   --global-blur: var(--glass-blur, 20px);
-  --global-blur-nested: 12px;
+  --global-blur-nested: 14px;
+  --global-blur-modal: 28px;
 }
 
-/* Wallpaper Dimmer Overlay Class */
-.ios-wallpaper-dimmer {
+html, body, #root { 
+  background: transparent !important;
+  margin: 0;
+  padding: 0;
+  height: 100vh;
+  width: 100vw;
+  color: var(--color-on-surface);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+:root {
+  --ease-axion: cubic-bezier(0.16, 1, 0.3, 1);
+  --ax-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --ax-spring: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ax-window-emerge {
+  animation: axionScreenEnter 280ms var(--ease-axion) forwards;
+}
+
+.ax-drawer-slide {
+  transition: transform 280ms var(--ease-axion), opacity 200ms ease;
+}
+
+.ax-item-exit {
+  transition: transform 220ms var(--ease-axion), opacity 200ms ease, max-height 220ms var(--ease-axion);
+  transform: translateX(32px);
+  opacity: 0;
+  max-height: 0px;
+  margin: 0;
+  padding: 0;
+}
+
+/* Allow text selection inside inputs, textareas, and markdown messages */
+input, textarea, .markdown-body, [contenteditable="true"] {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Tactile Buttons & Snappy Cubic-Bezier Physics (140ms press compression) */
+button, .ax-tap, .ax-pressable {
+  transition:
+    transform 140ms var(--ax-ease),
+    background-color 140ms var(--ax-ease),
+    border-color 140ms var(--ax-ease),
+    box-shadow 140ms var(--ax-ease),
+    color 140ms var(--ax-ease),
+    opacity 140ms var(--ax-ease);
+}
+
+button:active:not(:disabled), .ax-tap:active, .ax-pressable:active {
+  transform: scale(0.965) !important;
+  transition-duration: 140ms;
+}
+
+/* Layer 0 (Substrate): Ambient wallpaper under dark radial vignette: rgba(11, 15, 25, 0.82) */
+.ios-wallpaper-canvas,
+.wallpaper-layer {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background-color: #0b0f19;
+  background-image: var(--wallpaper-url, radial-gradient(circle at 20% 20%, rgba(16, 185, 129, 0.14) 0%, rgba(14, 116, 144, 0.10) 35%, #0b0f19 85%));
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+  transform: scale(1.02);
+  transition: background-image 320ms var(--ax-ease), filter 320ms var(--ax-ease);
+}
+
+.ios-wallpaper-dimmer,
+.wallpaper-scrim {
   position: fixed;
   inset: 0;
   z-index: -1;
-  background-color: rgba(0, 0, 0, var(--wallpaper-dim, 0));
+  background: radial-gradient(
+    ellipse at center,
+    rgba(8, 14, 26, calc(0.45 + var(--wallpaper-dim, 0) * 0.45)) 0%,
+    rgba(6, 10, 20, calc(0.88 + var(--wallpaper-dim, 0) * 0.10)) 100%
+  );
   pointer-events: none;
+  transition: background 240ms var(--ax-ease);
 }
 
-/* Glassmorphism Styles with High Cross-Browser & Cloud Run Compatibility */
+/* Layer 1 (Window Shell): rgba(13, 19, 31, 0.82), blur(28px), 1px solid rgba(255,255,255,0.08), radius 24px */
+.axion-surface-l1,
+.axion-dock-l1,
 .ios-glass-panel {
-  background-color: rgba(13, 17, 28, 0.78);
-  background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.01) 100%);
-  -webkit-backdrop-filter: blur(var(--global-blur));
-  backdrop-filter: blur(var(--global-blur));
+  background: rgba(13, 19, 31, var(--panel-opacity, 0.82));
+  -webkit-backdrop-filter: blur(28px);
+  backdrop-filter: blur(28px);
   border-radius: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-top: 1px solid rgba(255, 255, 255, 0.22);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.15);
-  transition: background-color 0.3s ease, backdrop-filter 0.3s ease, border-color 0.2s ease, box-shadow 0.3s ease;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 20px 50px -12px rgba(0, 0, 0, 0.65),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
+  transition:
+    background-color 240ms var(--ax-ease),
+    backdrop-filter 240ms var(--ax-ease),
+    border-color 150ms var(--ax-ease),
+    box-shadow 240ms var(--ax-ease);
 }
 
+/* Layer 2 (Internal Cards / Rows): rgba(18, 25, 40, 0.65), blur(16px), border 1px solid rgba(255,255,255,0.06), radius 14px */
+.axion-surface-l2,
+.axion-card,
+.ax-card,
+.glass-card,
 .ios-glass-card-nested {
-  background-color: rgba(255, 255, 255, 0.04);
-  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.03) 0%, rgba(0, 0, 0, 0.1) 100%);
-  -webkit-backdrop-filter: blur(var(--global-blur-nested));
-  backdrop-filter: blur(var(--global-blur-nested));
-  border-radius: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.ios-glass-card-nested:hover {
-  background-color: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.15);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-}
-
-.ios-glass-input {
-  background-color: rgba(0, 0, 0, 0.45);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(18, 25, 40, 0.65);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
   border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  transition:
+    transform 240ms var(--ax-ease),
+    background-color 150ms var(--ax-ease),
+    border-color 150ms var(--ax-ease),
+    box-shadow 240ms var(--ax-ease);
+}
+
+.axion-surface-l2:hover,
+.axion-card:hover,
+.ax-card:hover,
+.glass-card:hover,
+.ios-glass-card-nested:hover {
+  background: rgba(22, 31, 49, 0.78);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+/* Layer 3 (Floating Capsules / Pills): rgba(22, 32, 50, 0.92), blur(20px), radius 9999px */
+.axion-capsule-l3 {
+  background: rgba(22, 32, 50, 0.92);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
+}
+
+/* Layer 4 (Expansion Overlays / Canonical Window): rgba(10, 14, 26, 0.92), blur(36px), radius 20px */
+.ax-window,
+.axion-modal-surface {
+  background: rgba(10, 14, 26, 0.92);
+  -webkit-backdrop-filter: blur(36px);
+  backdrop-filter: blur(36px);
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 20px 48px -12px rgba(0, 0, 0, 0.55);
+  transition: all 240ms var(--ax-ease);
+}
+
+/* Responsive Expansion Mechanics for Plus (+) Trigger Window */
+@keyframes axRadialMobile {
+  0% {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes axSlideTablet {
+  0% {
+    opacity: 0;
+    transform: translate3d(100%, 0, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes axExpandDesktop {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.ax-plus-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(6, 10, 18, 0.60);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.ax-window-responsive {
+  width: 100%;
+  max-width: 95vw;
+  max-height: 86vh;
+  overflow-y: auto;
+  border-radius: 24px;
+  animation: axRadialMobile 320ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Tablet (768px - 1024px, Xiaomi Pad profile): Right-Docked Sliding Sheet (480px) over 280ms */
+@media (min-width: 768px) and (max-width: 1024px) {
+  .ax-plus-backdrop {
+    justify-content: flex-end;
+    align-items: stretch;
+    padding: 0;
+  }
+  .ax-window-responsive {
+    width: 480px;
+    max-width: 28rem;
+    height: 100%;
+    max-height: 100vh;
+    border-radius: 20px 0 0 20px;
+    animation: axSlideTablet 280ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+}
+
+/* Desktop (> 1024px): Statistically positioned in alignment with the navigation menu (top-aligned alongside menu, not blocking screen center) */
+@media (min-width: 1025px) {
+  .ax-plus-backdrop {
+    justify-content: flex-start;
+    align-items: flex-start;
+    padding-top: 4.5rem;
+    padding-left: calc(260px + 2.5rem);
+    padding-right: 2rem;
+    padding-bottom: 2rem;
+  }
+  .ax-window-responsive {
+    width: 100%;
+    max-width: 40rem; /* 640px */
+    max-height: 84vh;
+    border-radius: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    box-shadow: 0 24px 60px -12px rgba(0, 0, 0, 0.80), 0 0 0 1px rgba(255, 255, 255, 0.08);
+    animation: axExpandDesktop 260ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+}
+
+/* Recessed Input Wells & Metric Containers */
+.glass-inner-well,
+.ios-glass-input {
+  background: rgba(11, 15, 25, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
   color: var(--color-on-surface);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.30);
   outline: none;
-  transition: all 0.2s ease;
+  transition: all 150ms var(--ax-ease);
 }
 
-.ios-glass-input:focus {
-  border-color: rgba(16, 185, 129, 0.5);
-  background-color: rgba(0, 0, 0, 0.65);
-  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+.ios-glass-input:focus,
+.glass-inner-well:focus-within {
+  border-color: rgba(16, 185, 129, 0.45);
+  background: rgba(10, 14, 26, 0.88);
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12), inset 0 2px 4px rgba(0, 0, 0, 0.35);
 }
 
-/* Keyframe Animations for Fluid UI Motion */
-@keyframes iosSlideUp {
+/* Canonical 1.75px Geometric Stroke, Rounded Terminals, 20x20px Bounding Box Vector Icons */
+.ax-icon {
+  width: 20px;
+  height: 20px;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+  flex-shrink: 0;
+}
+
+.ax-icon-sm {
+  width: 20px;
+  height: 20px;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+  flex-shrink: 0;
+}
+
+.ax-icon-lg {
+  width: 24px;
+  height: 24px;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+  flex-shrink: 0;
+}
+
+/* Upgraded Tactile Range Slider (8px pill rail #1e293b, 20px thumb #10b981 with 3px #0d131f border & glow) */
+input[type="range"].axion-slider,
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: #1e293b;
+  height: 8px;
+  border-radius: 999px;
+  outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--theme-primary, #10b981);
+  border: 3px solid #0d131f;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.6);
+  cursor: pointer;
+  transition: transform 140ms var(--ax-ease), box-shadow 140ms var(--ax-ease);
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.12);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--theme-primary, #10b981);
+  border: 3px solid #0d131f;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.6);
+  cursor: pointer;
+  transition: transform 140ms var(--ax-ease), box-shadow 140ms var(--ax-ease);
+}
+
+/* Tabular Numerals Enforcement */
+.tabular-nums, .font-mono {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Task Insertion Animation: scale(0.96) translateY(8px) opacity: 0 -> scale(1) translateY(0) opacity: 1 in 240ms */
+@keyframes axTaskInsert {
+  0% {
+    opacity: 0;
+    transform: scale(0.96) translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.ax-task-insert {
+  animation: axTaskInsert 240ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Screen Entries & Panel Transitions: translateY(8px) scale(0.99) -> translateY(0) scale(1) in 320ms / 240ms */
+@keyframes axionScreenEnter {
   from {
     opacity: 0;
-    transform: translateY(18px) scale(0.98);
+    transform: translateY(8px) scale(0.99);
   }
   to {
     opacity: 1;
@@ -133,50 +407,31 @@ button:active {
   }
 }
 
-@keyframes iosFadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes pulseGlow {
-  0%, 100% {
-    opacity: 0.6;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.05);
-  }
-}
-
-.animate-ios-fade-in {
-  animation: iosSlideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+.animate-ios-fade-in,
+.ax-enter {
+  animation: axionScreenEnter 320ms var(--ax-ease) forwards;
 }
 
 .animate-ios-slide-up {
-  animation: iosSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: axionScreenEnter 240ms var(--ax-ease) forwards;
 }
 
-.animate-pulse-glow {
-  animation: pulseGlow 2.5s infinite ease-in-out;
+.modal-emerge {
+  animation: axionScreenEnter 240ms var(--ax-ease) forwards;
 }
 
-/* Custom Scrollbar */
+/* Discrete Custom Scrollbars */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.25);
 }
