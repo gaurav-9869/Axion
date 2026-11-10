@@ -20,7 +20,7 @@ export default defineConfig(({mode}) => {
         injectRegister: null,
         includeAssets: ['apple-touch-icon.png', 'logo.svg', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'favicon-32.png'],
         manifest: {
-          id: '/',
+          id: basePath,
           name: 'Axion',
           short_name: 'Axion',
           description: 'Progressive Web App designed for an Android tablet with Google Calendar and AI sync.',
@@ -28,8 +28,8 @@ export default defineConfig(({mode}) => {
           background_color: '#060a12',
           display: 'standalone',
           orientation: 'any',
-          start_url: '/',
-          scope: '/',
+          start_url: basePath,
+          scope: basePath,
           icons: [
             {
               src: 'icon-192.png',
